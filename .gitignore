@@ -53,3 +53,7 @@ biblio/
 
 #report
 report/
+
+data/processed/
+
+data/intermediate/
