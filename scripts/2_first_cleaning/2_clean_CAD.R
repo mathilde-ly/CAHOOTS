@@ -86,3 +86,16 @@ eugene_cad <- readRDS("data/intermediate/eugene_cad_raw.rds") %>%
 glimpse(eugene_cad)
 
 write_csv(eugene_cad, "data/processed/eugene_cad_2015_2025.csv")
+
+
+
+
+
+
+
+
+
+
+
+
+
