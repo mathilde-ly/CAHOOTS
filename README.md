@@ -23,17 +23,32 @@ Research project on Mobile Crisis Services in Eugene OR, focusing on call outcom
 
 # Script
 
-## 1. Convert and merge data to csv
+## 1. Prep and merge data
 
-## 2. Rough cleaning
+Harmonize data types, merge excel sheets and convert to RDS file for cleaning.
 
-Rename, chose variables and convert column types
+## 2. Rough cleaning and CAHOOTS id
 
-## 3. Mapping
+Rename columns for easier comparison, chose variables and convert column types.
+Identify CAHOOTS calls in SPD and CAD Data
 
-Identify patterns and map data to identify CAHOOT calls, and categorize call outcomes
+### CAHOOTS call identification CAD
 
-### CAHOOTS call identification
+To identify the agency handling each call, we created two binary columns, one for EPD, one for CAHOOTS. We assigned calls to CAHOOTS and tried identifying their unit id in `prime_unit`:
+- `agency` set to "CAHE" is a CAHOOTS call.
+- `service` set to "OTHR" is a CAHOOTS call.
+- We used string detection to filter `nature` or `closed_as` containing "CAHOOTS" to identify units, and when in doubt, checked for the agency. If it was EPD but multiple units were dispatched, we assumed CAHOOTS were also dispatched but not as the prime unit.
+
+We found a total of $54,546$ CAHOOTS only calls, $121,091$ CAHOOTS and EPD calls, and $1,270,414$ EPD only calls for a total of $13.81\%$ of CAHOOTS dispatches for 2015-2025 in Eugene.
+
+### CAHOOTS call identification SPD
+
+
+
+## 3. Mapping Call Outcomes
+
+Identify patterns and map data to categorize call outcomes
+
 
 ### Categorization of call outcome
 
@@ -47,14 +62,30 @@ We categorize call outcome into four aggregated categories for SPD and Eugene CA
 **TO DO:**
 - chose category for each call outcome for both datasets 
 
-## 4. Cleaning
+## 4. Statistical Analysis and Visualisations
 
 **TO DO:**
 - chose columns
 - calculate columns of interest
 
+### I/ Anticipated visualisations
 
-## 5. Analysis
+- Call outcome proportions per agency
+- Monthly arrest rate evolution for Welfare Checks in Eugene VS Springfield
+
+
+## 5. Modeling (BONUS)
+
+Prediction of outcome probability depending on call caracteristics
+
+### Expected results 
+
+- Measure if MCS LC compensate CAHOOTS's discontinuation in Eugene (Gap analysis Nathan)
+- Effect on arrestations of CAHOOTS's stopping and MCS LC's roll out
+- MCS LC's performance 
+
+
+# DRAFT
 
 - descriptive analysis of data
 - trend analysis in call outcome for CAHOOTS, CAHOOTS+MCSLC, MCSLC
