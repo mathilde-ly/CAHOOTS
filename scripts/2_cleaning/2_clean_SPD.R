@@ -59,7 +59,7 @@ spd_defs <- readRDS("data/intermediate/spd_defs_raw.rds") %>%
   rename(close_code_definition = definition)
 
 # --- Fusion and Final export ---
-spd_final <- spd_calls %>%
+spd <- spd_calls %>%
   left_join(spd_response, by = c("incident_id" = "id_incident", "year" = "year")) %>%
   left_join(spd_codes, by = c("incident_id", "year")) %>%
   left_join(spd_defs, by = "close_code", relationship = "many-to-many") %>%
@@ -94,9 +94,41 @@ spd_final <- spd_calls %>%
   distinct()
 
 
-glimpse(spd_final)
-    
-    
+glimpse(spd)
+
+# =========== ID CAHOOTS CALLS =========== #
+
+
+unique(spd$close_code_definition)
+
+
+spd %>%
+  filter(
+    str_detect(close_code_definition , "Referred")
+  ) %>%
+  count(prime_unit, close_code_definition, sort = TRUE) %>%
+  print(n = 50)
+
+
+spd %>%
+  filter(
+    prime_unit == "CAHOT"
+  ) %>%
+  count(prime_unit, agency, sort = TRUE) %>%
+  print(n = 50)
+
+# Check if unit is CAHOOTS or if it's EPD with CAHOOTS support (nb_units_dispatched > 2)
+eugene_cad %>%
+  filter(service == "OTHR") %>%
+  count(prime_unit, service, agency, sort = TRUE) %>%
+  print(n = 700)
+
+cahoots_units <- c("CAHOT")
+
+
+
+
+# =========== SAVE =========== #
 write_csv(spd_final, "data/processed/spd_2015_2025.csv")
 
 
