@@ -11,11 +11,10 @@ library(purrr)
 library(janitor)
 library(lubridate)
 library(hms)
-
-library(ggplot2)
-
 # ============ EUG CAD Data ============ #
-
+# initial cleaning
+# normalize cols names, adjust variable type
+# reorder cols
 
 eugene_cad <- readRDS("data/intermediate/eugene_cad_raw.rds") %>%
   clean_names() %>%
@@ -87,6 +86,7 @@ glimpse(eugene_cad)
 
 # =========== ID CAHOOTS CALLS =========== #
 # create binary column to indicate the agency dispatched
+# identify calls handled by cahoots
 
 eugene_cad %>%
   filter(
@@ -98,8 +98,8 @@ eugene_cad %>%
 # Identify CAHOOTS units
 eugene_cad %>%
   filter(
-    str_detect(nature, "CAH") |
-    str_detect(closed_as, "CAH")
+    str_detect(nature, "CAHOOTS") |
+    str_detect(closed_as, "CAHOOTS")
     ) %>%
   count(prime_unit, agency, nb_units_dispatched, sort = TRUE) %>%
   print(n = 50)
@@ -112,7 +112,6 @@ eugene_cad %>%
 
 
 # Assign CAHOOTS to prime units found
-
 cahoots_units <- c("_4J79", "_1J77", "_CAHOT", "_3J78", "_TESTCA", "_3J77", "_C100", "_3J79")
 
 eugene_cad_mapped <- eugene_cad %>%
