@@ -261,8 +261,7 @@ spd_mapped_clean <- spd_mapped %>%
   fill(nature_code, .direction = "updown") %>%
   ungroup() %>%
   
-  filter(SPD == 0 | CAHOOTS == 0,
-         prime_unit != "NONE",
+  filter(prime_unit != "NONE",
          nb_units_dispatched >= 1,
          !is.na(timestamp),
          !is.na(call_source),
@@ -275,9 +274,9 @@ spd_mapped_clean %>%
   summarise(across(everything(), ~ sum(is.na(.)))) %>%
   pivot_longer(everything(), names_to = "column", values_to = "na_count")
 
+table(spd_mapped_clean$SPD, spd_mapped_clean$CAHOOTS)
+
 # arrival and clear time not relevant
-
-
 
 # =========== SAVE =========== #
 write_csv(spd_mapped_clean, "data/processed/spd_2015_2025.csv")
