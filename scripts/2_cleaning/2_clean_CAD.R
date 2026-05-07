@@ -115,6 +115,7 @@ eugene_cad %>%
 cahoots_units <- c("_4J79", "_1J77", "_CAHOT", "_3J78", "_TESTCA", "_3J77", "_C100", "_3J79")
 
 eugene_cad_mapped <- eugene_cad %>%
+  filter(dispatch == 1) %>%
   mutate(
     EPD = if_else(agency == "EPD", 1, 0),
     CAHOOTS = if_else(agency == "CAHOOTS", 1, 0),
