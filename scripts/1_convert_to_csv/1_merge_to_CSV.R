@@ -1,5 +1,5 @@
 
-# R Script to open and merge datasets
+# R Script to open and merge datasets, save to RDS for processing
 # for MCS LC, SPD, and Eugene CAD data
 
 # ============ Libraries ============ #
@@ -42,7 +42,7 @@ saveRDS(spd_calls_raw, "data/intermediate/spd_calls_raw.rds")
 
 # --- SPD Responding Units ---
 spd_response_path <- "data/raw/2015-2025 SPD Responding Units.xlsx"
-response_sheets <- excel_sheets(spd_response_path)[-1] # Exclure la première feuille
+response_sheets <- excel_sheets(spd_response_path)[-1] 
 
 spd_response_raw <- response_sheets %>%
   set_names() %>%
@@ -79,9 +79,3 @@ cad_raw <- eugene_cad_files %>%
 
 saveRDS(cad_raw, output_raw_path)
 
-
-# ============ Read CSV ============ #
-
-mcslc <- read_csv("data/processed/mcs_lc.csv")
-spd <- read_csv("data/processed/spd_2015_2025.csv")
-eugene_cad <- read_csv("data/processed/eugene_cad_2015_2025.csv")
