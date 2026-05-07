@@ -54,9 +54,29 @@ biblio/
 #report
 report/
 
+#data folders
 data/processed/
-
 data/intermediate/
 
+#draft folder
 draft/
 .positai
+
+# --- R/renv ---
+renv/library/
+renv/python/
+renv/staging/
+renv/settings.json
+
+
+# --- Python ---
+# Ignorer les environnements virtuels et le cache
+__pycache__/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# --- Système/IDE ---
+.DS_Store
+.vscode/
+
