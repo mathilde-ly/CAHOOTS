@@ -11,12 +11,10 @@ library(purrr)
 library(janitor)
 library(lubridate)
 library(hms)
-
-library(ggplot2)
-
 # ============ MCS LC Data ============ #
 
-mcslc_raw <- read_csv("data/processed/mcs_lc.csv")
+mcslc_raw <- read_excel("data/raw/MCSLC.xlsx")
+
 
 
 mcslc <- mcslc_raw %>%
