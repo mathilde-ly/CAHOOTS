@@ -104,7 +104,7 @@ eugene_cad %>%
   count(prime_unit, agency, nb_units_dispatched, sort = TRUE) %>%
   print(n = 50)
 
-# Check if unit is CAHOOTS or if it's EPD with CAHOOTS support (nb_units_dispatched > 2)
+# Check if unit is CAHOOTS or if it's EPD with CAHOOTS support (nb_units_dispatched >= 2)
 eugene_cad %>%
   filter(service == "OTHR") %>%
   count(prime_unit, service, agency, sort = TRUE) %>%
@@ -168,10 +168,18 @@ eugene_cad_mapped <- eugene_cad %>%
 table(eugene_cad_mapped$EPD, eugene_cad_mapped$CAHOOTS)
 glimpse(eugene_cad_mapped)  
 
+# ============ fix missing values ============ #
+eugene_cad_mapped %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "column", values_to = "na_count")
+
+eugene_cad_mapped_clean <- eugene_cad_mapped %>%
+  mutate(priority = fct_explicit_na(priority, "Not Assigned"))
+
 
 # =========== SAVE ============ #
 
-write_csv(eugene_cad_mapped, "data/processed/eugene_cad_2015_2025.csv")
+write_csv(eugene_cad_mapped_clean, "data/processed/eugene_cad_2015_2025.csv")
 
 
 
