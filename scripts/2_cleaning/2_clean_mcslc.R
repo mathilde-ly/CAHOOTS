@@ -39,6 +39,9 @@ mcslc <- mcslc_raw %>%
     agency = "MCS LC",
     agency = as.factor(agency),
     
+    MCSLC = 1,
+    priority = "Not Assigned",
+    
     city = as.factor(city),
     call_type = as.factor(call_type),
     
@@ -70,11 +73,13 @@ mcslc <- mcslc_raw %>%
     timestamp,
     incident_id,
     agency,
+    MCSLC,
     city,
     #call nature
     call_type,
     call_outcome,
     #chronology
+    priority,
     dispatch_time,
     client_engagement_time,
     arrival_time,
