@@ -110,7 +110,7 @@ eugene_cad %>%
   count(prime_unit, service, agency, sort = TRUE) %>%
   print(n = 700)
 
-
+# ============ ASSIGN CAHOOTS =========== #
 # Assign CAHOOTS to prime units found
 cahoots_units <- c("_4J79", "_1J77", "_CAHOT", "_3J78", "_TESTCA", "_3J77", "_C100", "_3J79")
 
@@ -130,7 +130,7 @@ eugene_cad_mapped <- eugene_cad %>%
     # set EPD to 1 if more than 1 unit were dispatched
     is_cah_text = str_detect(nature, "CAHOOTS") | str_detect(closed_as, "CAHOOTS"),
     CAHOOTS = if_else(is_cah_text, 1, CAHOOTS),
-    EPD = if_else(is_cah_text & nb_units_dispatched > 1, 1, EPD)
+    EPD = if_else(is_cah_text & nb_units_dispatched > 1, 1, EPD),
   ) %>%
   
   # as factor 

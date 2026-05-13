@@ -77,6 +77,19 @@ data_merged <- cad_processed %>%
   full_join(mcslc_processed, 
             by = c("timestamp", "incident_id", "city", "nature", "outcome", "priority", "source")) %>%
   mutate(across(c(EPD, CAHOOTS, SPD, MCSLC), ~ replace_na(.x, 0))) %>%
+  mutate(outcome = str_to_title(outcome)) %>%
+  mutate(outcome = case_when(
+    outcome %in% c("Building Check Secure", "Building Checked Secure") ~ "Building Checked Secure",
+    outcome %in% c("Fire - No Damage", "Fire No Damage") ~ "Fire No Damage",
+    outcome %in% c("Patient Transported", "Patient Trasnported") ~ "Patient Transported",
+    outcome %in% c("Refused Service", "Refused Services") ~ "Refused Services",
+    outcome %in% c("Refused Service - Cahoots", "Refused Services (Cahoots)") ~ "Refused Services (Cahoots)",
+    outcome %in% c("Relayed To Lane County Sheriff's Office", "Relayed To Lane County Sheriffs Office") ~ "Relayed To Lane County Sheriff's Office",
+    outcome %in% c("Tagged Ie Parking Cite Issued", "Tagged Parking Cite Issued") ~ "Tagged Parking Cite Issued",
+    outcome %in% c("Unhoused-Related Issue", "Unhoused Related Issue") ~ "Unhoused Related Issue",
+    outcome %in% c("Vehicle Towed - Not Impounded", "Vehicle Towed Non Impound") ~ "Vehicle Towed Non Impound",
+    TRUE ~ outcome
+  )) %>%
   select(
     timestamp,
     incident_id,
@@ -90,6 +103,7 @@ data_merged <- cad_processed %>%
     priority,
     source
   )
+  
 
 glimpse(data_merged)
 
