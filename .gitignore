@@ -57,6 +57,7 @@ report/
 #data folders
 data/processed/
 data/intermediate/
+data/clean/
 
 #draft folder
 draft/
