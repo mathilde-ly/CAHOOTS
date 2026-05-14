@@ -107,8 +107,10 @@ eugene_cad %>%
 # Check if unit is CAHOOTS or if it's EPD with CAHOOTS support (nb_units_dispatched >= 2)
 eugene_cad %>%
   filter(service == "OTHR") %>%
-  count(prime_unit, service, agency, sort = TRUE) %>%
-  print(n = 700)
+  count(closed_as, service, sort = TRUE) %>%
+  print(n = 100)
+
+unique(eugene_cad$closed_as)
 
 # ============ ASSIGN CAHOOTS =========== #
 # Assign CAHOOTS to prime units found
@@ -126,11 +128,13 @@ eugene_cad_mapped <- eugene_cad %>%
     EPD = if_else(prime_unit %in% cahoots_units & nb_units_dispatched > 1, 1, EPD),
     CAHOOTS = if_else(prime_unit %in% cahoots_units, 1, CAHOOTS),
     
+    CAHOOTS = if_else(service == "OTHR", 1, CAHOOTS), # no change
+    
     # ID cahoots via text detection in nature and closed_as
     # set EPD to 1 if more than 1 unit were dispatched
     is_cah_text = str_detect(nature, "CAHOOTS") | str_detect(closed_as, "CAHOOTS"),
     CAHOOTS = if_else(is_cah_text, 1, CAHOOTS),
-    EPD = if_else(is_cah_text & nb_units_dispatched > 1, 1, EPD),
+    EPD = if_else(is_cah_text & nb_units_dispatched > 1, 1, EPD) # almost useless, only 1 less call in both
   ) %>%
   
   # as factor 
