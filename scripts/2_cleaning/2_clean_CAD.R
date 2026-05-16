@@ -16,6 +16,9 @@ library(hms)
 # normalize cols names, adjust variable type
 # reorder cols
 
+
+
+
 eugene_cad <- readRDS("data/intermediate/eugene_cad_raw.rds") %>%
   clean_names() %>%
   
@@ -84,6 +87,10 @@ eugene_cad <- readRDS("data/intermediate/eugene_cad_raw.rds") %>%
 
 glimpse(eugene_cad)
 
+unique(eugene_cad$close_code)
+
+
+
 # =========== ID CAHOOTS CALLS =========== #
 # create binary column to indicate the agency dispatched
 # identify calls handled by cahoots
@@ -101,44 +108,48 @@ eugene_cad %>%
     str_detect(nature, "CAHOOTS") |
     str_detect(closed_as, "CAHOOTS")
     ) %>%
-  count(prime_unit, agency, nb_units_dispatched, sort = TRUE) %>%
+  count(prime_unit, agency, service, nb_units_dispatched, sort = TRUE) %>%
   print(n = 50)
 
 # Check if unit is CAHOOTS or if it's EPD with CAHOOTS support (nb_units_dispatched >= 2)
 eugene_cad %>%
   filter(service == "OTHR") %>%
+  count(nature, closed_as, service, sort = TRUE) %>%
+  print(n = 100)
+
+eugene_cad %>%
+  filter(nature == "TRANSPORT") %>%
   count(closed_as, service, sort = TRUE) %>%
   print(n = 100)
 
-unique(eugene_cad$closed_as)
+eugene_cad %>% filter(str_detect(nature, "CHECK WELFARE")) %>%
+  count(nature, prime_unit) %>%
+  arrange() %>% print(n = 1000)
 
 # ============ ASSIGN CAHOOTS =========== #
 # Assign CAHOOTS to prime units found
-cahoots_units <- c("_4J79", "_1J77", "_CAHOT", "_3J78", "_TESTCA", "_3J77", "_C100", "_3J79")
+# https://lawenforcementactionpartnership.org/eugene-oregon-cahoots-program/
+cahoots_units <- c("_1J77","_3J78", "_3J79", "_CAHOT",  "_TESTCA")
 
-eugene_cad_mapped <- eugene_cad %>%
-  filter(dispatch == 1) %>%
+
+eugene_cad_mapped <- eugene_cad %>% # only dispatched calls
+  filter(dispatch == 1,
+         prime_unit != "NULL" # checked, every null prime unit is a disregarded or similar close code
+         ) %>%
   mutate(
-    EPD = if_else(agency == "EPD", 1, 0),
     CAHOOTS = if_else(agency == "CAHOOTS", 1, 0),
     
-    # ID cahoots via prime_units
-    # Si l'unité est CAHOOTS, on force CAHOOTS à 1. 
-    # set EPD to 1 if more than 1 unit dispatched
-    EPD = if_else(prime_unit %in% cahoots_units & nb_units_dispatched > 1, 1, EPD),
     CAHOOTS = if_else(prime_unit %in% cahoots_units, 1, CAHOOTS),
     
-    CAHOOTS = if_else(service == "OTHR", 1, CAHOOTS), # no change
-    
-    # ID cahoots via text detection in nature and closed_as
-    # set EPD to 1 if more than 1 unit were dispatched
-    is_cah_text = str_detect(nature, "CAHOOTS") | str_detect(closed_as, "CAHOOTS"),
-    CAHOOTS = if_else(is_cah_text, 1, CAHOOTS),
-    EPD = if_else(is_cah_text & nb_units_dispatched > 1, 1, EPD) # almost useless, only 1 less call in both
-  ) %>%
+    EPD = case_when(
+      prime_unit %in% cahoots_units & nb_units_dispatched > 1 ~ 1,
+      prime_unit %in% cahoots_units ~ 0,
+      agency == "EPD" ~ 1,
+      TRUE ~ 0
+    )
+    ) %>%
   
   # as factor 
-  select(-is_cah_text) %>%
   mutate(
     across(c(EPD, CAHOOTS), as.factor)
   ) %>%
@@ -167,23 +178,52 @@ eugene_cad_mapped <- eugene_cad %>%
     nb_units_dispatched, 
     nb_units_arrived
   ) %>%
-  distinct()
+  distinct() %>%
+  mutate(priority = fct_explicit_na(priority, "Not Assigned"))
   
-table(eugene_cad_mapped$EPD, eugene_cad_mapped$CAHOOTS)
+
+eugene_cad_mapped %>%
+  count(EPD, CAHOOTS) %>%
+  mutate(
+    percentage = (n / sum(n)) * 100,
+    total_calls = sum(n)
+  )
+
+eugene_cad_mapped %>%
+  summarise(
+    total_calls = n(),
+    pct_cahoots = sum(CAHOOTS == "1" & EPD == "0") / n() * 100,
+    pct_cahoots_any = sum(CAHOOTS == "1") / n() * 100,
+    pct_epd = sum(EPD == "1" & CAHOOTS == "0") / n() * 100,
+    pct_epd_any = sum(EPD == "1") / n() * 100,
+    pct_both = sum(CAHOOTS == "1" & EPD == "1") / n() * 100
+  )
+
 glimpse(eugene_cad_mapped)  
 
-# ============ fix missing values ============ #
-eugene_cad_mapped %>%
-  summarise(across(everything(), ~ sum(is.na(.)))) %>%
-  pivot_longer(everything(), names_to = "column", values_to = "na_count")
+# ============ check for wrong values ============ #
 
-eugene_cad_mapped_clean <- eugene_cad_mapped %>%
-  mutate(priority = fct_explicit_na(priority, "Not Assigned"))
+eugene_cad_mapped %>% 
+  filter(nature == "CHECK WELFARE") %>%
+  count(nature, agency, closed_as, service, EPD, CAHOOTS, prime_unit, nb_units_dispatched ) %>%
+  filter(n > 100) %>%
+  arrange(-n) %>%
+  print( n = 100)
+
+unique(eugene_cad_mapped$prime_unit)
+
+eugene_cad_mapped %>%
+  filter(closed_as == "GONE ON ARRIVAL") %>% 
+  count(prime_unit, nature, closed_as) %>%
+  filter(n > 100) %>%
+  arrange(n) %>%
+  print( n = 100)
+
 
 
 # =========== SAVE ============ #
 
-write_csv(eugene_cad_mapped_clean, "data/processed/eugene_cad_2015_2025.csv")
+write_csv(eugene_cad_mapped, "data/processed/eugene_cad_2015_2025.csv")
 
 
 
