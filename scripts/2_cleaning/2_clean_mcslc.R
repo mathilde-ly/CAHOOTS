@@ -91,8 +91,14 @@ mcslc <- mcslc_raw %>%
     minutes_arrival_departure
   )
 
-unique(mcslc$call_type)
+unique(mcslc$dispatch_status)
 glimpse(mcslc)
+
+mcslc %>%
+  filter(is.na(dispatch_time)) %>%
+  count(call_type, dispatch_status, minutes_request_dispatch, arrival_time, clear_time ) %>%
+  arrange(dispatch_status) %>%
+  print(n = 228)
 
 
 write_csv(mcslc, "data/processed/mcs_lc.csv")
