@@ -11,6 +11,7 @@ library(purrr)
 library(janitor)
 library(lubridate)
 library(hms)
+
 # ============ SPD Data ============ #
 # Cleaning and merging of SPD calls, response units and close codes
 
@@ -97,10 +98,9 @@ spd <- spd_calls %>%
 
 glimpse(spd)
 
+
+
 # =========== ID CAHOOTS CALLS =========== #
-
-
-unique(spd$nature)
 
 # likely cahoots codes and natures
 nature_cahoots <- c(
@@ -119,7 +119,7 @@ nature_cahoots <- c(
   # --- Substances & Addictions ---
   'DETOXIFICATION', 'INTOXICATED SUBJECT', 'OVERDOSE', 
   'IN POSSESSION OF NARCOTICS', 'DRUG INFO', 'FOUND SYRINGE',
-  'POISONING', 'CARDIAC ARREST', # Souvent lié aux overdoses
+  'POISONING', 'CARDIAC ARREST', 
   
   # --- Public order ---
   'DISORDERLY SUBJECT', 'LOUD NOISE', 'LOUD PARTY', 
@@ -169,42 +169,43 @@ close_code_cahoots <- c(
 # Identify CAHOOTS prime units (most frequent prime_unit for likely intervention motives)
 units_summary <- spd %>%
   filter(!is.na(prime_unit),
-         close_code_definition %in% close_code_cahoots,
-         nature %in% nature_cahoots,
+         #close_code_definition %in% close_code_cahoots,
+         #nature %in% nature_cahoots,
          prime_unit != "NONE") %>% 
   count(prime_unit, units, nature, close_code_definition, name = "total_calls") %>%
   group_by(prime_unit) %>%
   arrange(desc(total_calls))
 
+
+# ============ APPLY ID TO DF ============ #
 # map cahoots calls
-cahoots_units <- c("CAHOT", "3J81")
+cahoots_units <- c("CAHOT", "3J81") # deducted from analysis 
 cahoots_pattern <- str_c(cahoots_units, collapse = "|")
 
 spd_mapped <- spd %>%
   mutate(
-    SPD = if_else(agency == "SPD", 1, 0),
-    CAHOOTS = if_else(agency == "CAHOOTS", 1, 0),
+    clean_units = str_replace_all(units, "\\s+", ""),
     
-    # ID cahoots via prime_units
-    # if unit is in cahoots_unit, set CAHOOTS to 1 
-    # set SPD to 0 if unit is cahoots and one or less unit was dispatched
-    SPD = if_else(prime_unit %in% cahoots_units & nb_units_dispatched <= 1, 0, SPD),
-    CAHOOTS = if_else(prime_unit %in% cahoots_units, 1, CAHOOTS),
-    agency = if_else(prime_unit %in% cahoots_units, "CAHOOTS", agency),
-    CAHOOTS = if_else(str_detect(units, cahoots_pattern), 1, 0),
+    # Logical flags for identification
+    has_cahoots_unit = prime_unit %in% cahoots_units | str_detect(clean_units, cahoots_pattern),
+    has_cahoots_text = str_detect(nature, "(?i)CAHOOTS") | str_detect(close_code_definition, "(?i)CAHOOTS"),
     
-    # ID cahoots via text detection in nature and closed_as
-    # set EPD to 1 if more than 1 unit were dispatched
-    is_cah_text = str_detect(nature, "CAHOOTS") | str_detect(close_code_definition, "CAHOOTS"),
-    CAHOOTS = if_else(is_cah_text, 1, CAHOOTS),
-    SPD = if_else(is_cah_text & nb_units_dispatched > 1, 1, SPD)
+    # Binary tracking assignment
+    CAHOOTS = if_else(has_cahoots_unit | has_cahoots_text, 1, 0),
+    
+    # Allocation logic for law enforcement presence
+    SPD = case_when(
+      # Co-response: Cahoots unit present alongside multiple units
+      has_cahoots_unit & nb_units_dispatched > 1 ~ 1,
+      # Solo response: Only Cahoots unit dispatched
+      has_cahoots_unit & nb_units_dispatched == 1 ~ 0,
+      # Regular response: Standard law enforcement allocation
+      agency == "SPD" ~ 1,
+      TRUE ~ 0
+    )
   ) %>%
-  
-  # as factor 
-  select(-is_cah_text) %>%
-  mutate(
-    across(c(SPD, CAHOOTS), as.factor)
-  ) %>%
+  mutate(across(c(SPD, CAHOOTS), as.factor)) %>%
+  distinct() %>%
   select(
     #context
     timestamp, 
@@ -217,7 +218,7 @@ spd_mapped <- spd %>%
     nature, 
     nature_code,
     close_code, 
-    close_code_definition,, 
+    close_code_definition, 
     priority, 
     call_source,
     # units
@@ -228,11 +229,11 @@ spd_mapped <- spd %>%
     dispatch_time, 
     arrival_time, 
     clear_time, 
-  ) %>%
-  distinct()
+  )
 
 table(spd_mapped$SPD, spd_mapped$CAHOOTS)
 glimpse(spd_mapped)  
+
 
 unique(spd_mapped$priority)
 
@@ -244,41 +245,65 @@ spd_mapped %>%
 
 spd_mapped %>% 
   filter(is.na(nature_code)) %>%
-  count(nb_units_dispatched, nature, close_code_definition) %>%
+  count(nature_code, nb_units_dispatched, nature, close_code_definition) %>%
+  print(n = 150)
+
+spd_mapped %>% 
+  filter(is.na(CAHOOTS)) %>%
+  count(nature_code, nb_units_dispatched, nature, close_code_definition) %>%
   print(n = 150)
 
 spd_mapped %>%
   summarise(across(everything(), ~ sum(is.na(.)))) %>%
   pivot_longer(everything(), names_to = "column", values_to = "na_count")
 
-# ============ CLEAN MAPPED DATASET ============ #
-# we look only at dispatched calls 
+# ============ clean ============ #
 
-# filter na values and global cleaning
 spd_mapped_clean <- spd_mapped %>%
-  # fix missing nature codes
-  group_by(nature) %>%
-  fill(nature_code, .direction = "updown") %>%
-  ungroup() %>%
-  
-  filter(prime_unit != "NONE",
-         nb_units_dispatched >= 1,
-         !is.na(timestamp),
-         !is.na(call_source),
-         !is.na(nature_code)) %>%
-  mutate(priority = fct_explicit_na(priority, "Not Assigned"))
-  
-  
-# quick check of missing values
+  filter(
+    !is.na(timestamp),
+    !is.na(nature),
+    !is.na(close_code),
+    !is.na(close_code_definition),
+    !is.na(call_source)
+  )
+
+
 spd_mapped_clean %>%
   summarise(across(everything(), ~ sum(is.na(.)))) %>%
   pivot_longer(everything(), names_to = "column", values_to = "na_count")
 
 table(spd_mapped_clean$SPD, spd_mapped_clean$CAHOOTS)
 
-# arrival and clear time not relevant
+
+
+
+spd_mapped_clean %>%
+  count(SPD, CAHOOTS) %>%
+  mutate(
+    percentage = (n / sum(n)) * 100,
+    total_calls = sum(n)
+  )
+
+spd_mapped_clean %>%
+  summarise(
+    total_calls = n(),
+    pct_cahoots = sum(CAHOOTS == "1" & SPD == "0") / n() * 100,
+    pct_cahoots_any = sum(CAHOOTS == "1") / n() * 100,
+    pct_spd = sum(SPD == "1" & CAHOOTS == "0") / n() * 100,
+    pct_spd_any = sum(SPD == "1") / n() * 100,
+    pct_both = sum(CAHOOTS == "1" & SPD == "1") / n() * 100
+  )
+
+
+spd_mapped_clean %>%
+  filter(CAHOOTS == 1) %>%
+  count(nature, SPD, CAHOOTS) %>%
+  arrange(n) %>%
+  print( n = 500)
 
 # =========== SAVE =========== #
 write_csv(spd_mapped_clean, "data/processed/spd_2015_2025.csv")
+
 
 
