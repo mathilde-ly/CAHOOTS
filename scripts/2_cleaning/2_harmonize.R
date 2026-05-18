@@ -71,11 +71,7 @@ glimpse(mcslc_processed)
 
 # =========== full join =========== #
 
-data_merged <- cad_processed %>%
-  full_join(spd_processed, 
-            by = c("timestamp", "incident_id", "city", "nature", "outcome", "priority", "source", "CAHOOTS")) %>%
-  full_join(mcslc_processed, 
-            by = c("timestamp", "incident_id", "city", "nature", "outcome", "priority", "source")) %>%
+data_merged <- bind_rows(cad_processed, spd_processed, mcslc_processed) %>%
   mutate(across(c(EPD, CAHOOTS, SPD, MCSLC), ~ replace_na(.x, 0))) %>%
   mutate(outcome = str_to_title(outcome)) %>%
   mutate(outcome = case_when(
