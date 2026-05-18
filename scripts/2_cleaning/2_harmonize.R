@@ -105,7 +105,7 @@ glimpse(data_merged)
 
 # ============ save ============ #
 
-write.csv(data_merged, "data/processed/data_merged.csv")
+write.csv(data_merged, "data/clean/data_merged.csv")
 
 
 
