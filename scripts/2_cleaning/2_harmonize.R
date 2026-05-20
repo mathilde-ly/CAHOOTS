@@ -62,6 +62,7 @@ mcslc_processed <- mcslc %>%
          city,
          nature,
          outcome,
+         dispatch_status,
          priority,
          source)
 
@@ -73,7 +74,28 @@ glimpse(mcslc_processed)
 
 data_merged <- bind_rows(cad_processed, spd_processed, mcslc_processed) %>%
   mutate(across(c(EPD, CAHOOTS, SPD, MCSLC), ~ replace_na(.x, 0))) %>%
-  mutate(outcome = str_to_title(outcome)) %>%
+  mutate(
+    outcome = str_to_title(outcome),
+         dispatch_status = coalesce(dispatch_status, "Non MCSLC"),
+         
+         nature = str_to_title(nature),
+         nature = str_trim(nature),
+         nature = str_remove(nature, ", Cahoots$"),
+         
+         nature = case_when(
+         str_detect(nature, "^Gas Leak|Outside Gas Leak") ~ "Gas Leak",
+         str_detect(nature, "Motor Veh.*Acc") ~ "Motor Vehicle Accident",
+         str_detect(nature, "^Alarm") ~ "Alarm",
+         nature == "Overdo" ~ "Overdose",
+         nature == "Gunsho" ~ "Gunshot",
+         nature %in% c("Assist Public- Police") ~ "Public Assist",
+         nature %in% c("Test", "Test Call", "Test Call Epd") ~ "Test Call",
+         nature %in% c("Suicidal Subject", "Suicidality Or Suicide Attempt") ~ "Suicidal Subject",
+         nature %in% c("Animal Attack/Bite", "Animal Bite") ~ "Animal Attack/Bite",
+         nature %in% c("Assist Fd", "Assist Fire Department") ~ "Assist Fire Department",
+         nature %in% c("Assist Pd", "Assist Police") ~ "Assist Police",
+         TRUE ~ nature)
+         ) %>%
   mutate(outcome = case_when(
     outcome %in% c("Building Check Secure", "Building Checked Secure") ~ "Building Checked Secure",
     outcome %in% c("Fire - No Damage", "Fire No Damage") ~ "Fire No Damage",
@@ -96,16 +118,33 @@ data_merged <- bind_rows(cad_processed, spd_processed, mcslc_processed) %>%
     city,
     nature,
     outcome,
+    dispatch_status,
     priority,
     source
+  ) %>%
+  mutate(
+    timestamp = as_datetime(timestamp),
+    across(c(city, nature, outcome, dispatch_status, priority, source), as.factor),
+    across(c(EPD, SPD, CAHOOTS, MCSLC), as.factor)
   )
   
 
 glimpse(data_merged)
 
+data_merged %>%
+  count(nature) %>%
+  arrange()
+
+unique(data_merged$outcome)
+unique(data_merged$nature)
+
+
+
+
 # ============ save ============ #
 
 write.csv(data_merged, "data/clean/data_merged.csv")
+saveRDS(data_merged, "data/clean/data_merged.rds")
 
 
 

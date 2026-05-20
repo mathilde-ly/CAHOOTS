@@ -210,7 +210,7 @@ eugene_cad_mapped %>%
   arrange(-n) %>%
   print( n = 100)
 
-unique(eugene_cad_mapped$prime_unit)
+unique(eugene_cad_mapped$nature)
 
 eugene_cad_mapped %>%
   filter(closed_as == "GONE ON ARRIVAL") %>% 
@@ -219,6 +219,10 @@ eugene_cad_mapped %>%
   arrange(n) %>%
   print( n = 100)
 
+eugene_cad_mapped %>%
+  filter(nature == "ASSIST PD, CAHOOTS") %>%
+  count(nature, agency, EPD, CAHOOTS, prime_unit, nb_units_dispatched) %>%
+  arrange()
 
 
 # =========== SAVE ============ #
