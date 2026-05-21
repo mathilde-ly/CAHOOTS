@@ -99,12 +99,15 @@ df_analysis <- data %>%
   ) %>%
   filter(!is.na(period), responder != "Mixed_Response")
 
+# why does cahoots have no welfare check done?
+
 df_analysis %>%
   filter(responder == "CAHOOTS") %>%
   count(outcome, sort = TRUE) %>%
   mutate(proportion = n / sum(n) * 100) %>%
   head(15)
 
+# how is welfare check answered by cahoots?
 df_analysis %>%
   filter(responder == "CAHOOTS", nature == "Check Welfare") %>%
   count(outcome, sort = TRUE) %>%
