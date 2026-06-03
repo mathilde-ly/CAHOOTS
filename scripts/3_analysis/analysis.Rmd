@@ -16,6 +16,45 @@ include-before:
   - \newpage
 ---
 \newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{r libraries}
+
+library(here) # for relative paths
+library(tidyverse)
+library(dplyr)
+library(scales)
+library(readxl)
+library(purrr)
+library(janitor)
+library(lubridate)
+library(hms)
+
+```
+
+```{r data}
+data <- readRDS(here("data/clean/data_merged.rds"))
+```
+
+```{r color palette}
+
+# color blind friendly palette https://colors-tester.com/free/fr/
+color_agencies <- c(
+  "EPD"     = "#2ACCFE",  
+  "SPD"     = "#FEA4E6",  
+  "CAHOOTS" = "#58BF03",  
+  "MCS_LC"   = "#FF8C66"   
+)
+
+```
+
 # Introduction 
 
 In this document, we will be conducting a quantitative analysis of the call outcomes for mental health, addiction and homelessness related emergencies in Eugene. We will be focusing on the code and methods. For more details about the project, please find the full report at the root of the repository: `internship_report.pdf`.
@@ -38,50 +77,19 @@ This project uses [`renv`](https://rstudio.github.io/renv/) for R package manage
 
 If you add new packages, use `renv::snapshot()` to update the lockfile.
 
-## Libraries
-
-```{r - libraries, echo = TRUE, message = FALSE, warning = FALSE}
-
-library(here) # for relative paths
-library(tidyverse)
-library(dplyr)
-
-library(readxl)
-library(purrr)
-library(janitor)
-library(lubridate)
-library(hms)
-
-```
-
-## Color Palette
-
-```{r - color palette}
-
-# color blind friendly palette https://colors-tester.com/free/fr/
-color_agencies <- c(
-  "EPD"     = "#2ACCFE",  
-  "SPD"     = "#FEA4E6",  
-  "CAHOOTS" = "#58BF03",  
-  "MCS_LC"   = "#FF8C66"   
-)
 
 
 
-```
+
+
 
 # Data
 
-Here is the command to open the clean data.
+The data used in this analysis is processed and merged from the following sources.
 
-```{r - data}
-
-data <- readRDS(here("data/clean/data_merged.rds"))
-head(data)
-
+```{r data glimpse}
+glimpse(data)
 ```
-
-We processed it from the following sources.
 
 ## Available raw data
 
@@ -179,11 +187,12 @@ The following analysis will focus on investigating the changes in Eugene's respo
 
 Let's begin with an generic overview and exploratory analysis of the data.
 
-```{r - glimpse}
+```{r glimpse}
 glimpse(data)
 ```
 
-```{r - global call volume, echo = TRUE, message = FALSE, warning = FALSE}
+
+```{r global call volume}
 
 data %>%
   group_by(city) %>%
@@ -197,8 +206,9 @@ data %>%
   knitr::kable(caption = "Global repartition of call volume per city and agency")
 ```
 
+The most frequent natures for CAHOOTS calls are Public Assist and Check Welfare. These will be our main focus for the whole analysis, along with some other call natures appearing in the plot.
 
-```{r - cahoots natures, echo = TRUE, fig.align = "center", fig.width = 7, fig.height = 4.5, fig.cap = "Top 10 most frequent call natures for CAHOOTS dispatches"}
+```{r cahoots natures, fig.align = "center", fig.width = 7, fig.height = 4.5, fig.cap = "Top 10 most frequent call natures for CAHOOTS dispatches"}
 
 data_nature_cahoots <- data %>%
   filter(CAHOOTS == 1) %>%
@@ -224,8 +234,9 @@ ggplot(data_nature_cahoots, aes(x = reorder(nature, n), y = n)) +
 ```
 
 
+After 
 
-```{r - evolution in time, echo = TRUE, fig.align = "center", fig.width = 7.5, fig.height = 4.5, fig.cap = "Monthly evolution of call volume by mcs agency (2015-2025)"}
+```{r evolution in time,fig.align = "center", fig.width = 7.5, fig.height = 4.5, fig.cap = "Monthly evolution of call volume by mcs agency (2015-2025)"}
 
 data_chronologie <- data %>%
   mutate(Mois = floor_date(timestamp, "month")) %>%
@@ -250,9 +261,82 @@ ggplot(data_chronologie, aes(x = Mois, y = Volume, color = Service)) +
 ```
 
 
+```{r plot aggregated outcomes, fig.width = 10, fig.height = 5.5}
 
-## Call outcome focus
+# COLOR PALETTE
+color_outcomes <- c(
+  "Arrest"               = "#E63946", 
+  "Emergency Department" = "#F4A261",  
+  "Community Support"    = "#2A9D8F",  
+  "Other"                = "#A8DADC"
+)
 
+# CREATE AGGREGATED OUTCOMES
+data_outcomes <- data %>%
+  mutate(
+    has_police = if_else(EPD == 1 | SPD == 1, TRUE, FALSE),
+    has_crisis = if_else(CAHOOTS == 1 | MCSLC == 1, TRUE, FALSE),
+    response_profile = case_when(
+      has_police & has_crisis ~ "Joint Response",
+      has_police & !has_crisis ~ "Police Only",
+      !has_police & has_crisis ~ "Crisis Unit Only",
+      TRUE ~ "Other / Missing"
+    )
+  ) %>%
+  filter(response_profile != "Other / Missing") %>%
+  mutate(
+    outcome_clean = str_to_lower(outcome),
+    macro_outcome = case_when(
+      str_detect(outcome_clean, "arrest|custody|citation") ~ "Arrest",
+      str_detect(outcome_clean, "transport|hospital|medical|department|detox") ~ "Emergency Department",
+      str_detect(outcome_clean, "assist|counseling|resolved|community|advised|welfare") ~ "Community Support",
+      TRUE ~ "Other"
+    ),
+    macro_outcome = factor(macro_outcome, levels = c("Arrest", "Emergency Department", "Community Support", "Other"))
+  ) %>%
+  group_by(response_profile, macro_outcome) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(response_profile) %>%
+  mutate(Proportion = Count / sum(Count))
+
+# PLOT STACKED BARS
+ggplot(data_outcomes, aes(x = response_profile, y = Proportion, fill = macro_outcome)) +
+  geom_col(position = "fill", width = 0.6) +
+  scale_y_continuous(labels = percent_format()) +
+  scale_fill_manual(values = color_outcomes) +
+  coord_flip() + 
+  labs(
+    title = "Call Outcomes Distribution by Response Profile",
+    subtitle = "Relative proportion of final dispositions (100% stacked)",
+    x = "Response Profile",
+    y = "Percentage of Total Calls",
+    fill = "Outcome"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, color = "#1D3557"),
+    plot.subtitle = element_text(size = 11, color = "#4A4A4A"),
+    panel.background = element_rect(fill = "#FFFFFF", color = NA),
+    plot.background = element_rect(fill = "#FFFFFF", color = NA),
+    panel.grid.major.y = element_blank(), 
+    panel.grid.minor = element_blank(),
+    legend.position = "top",        
+    axis.text.y = element_text(face = "bold", color = "#1D3557")
+  )
+```
+
+
+
+
+## CAHOOTS and MCSLC comparison
+
+To better understand the effects of CAHOOTS' discontinuation and MCSLC's roll-out, we will be focusing on the time period where they were both active, and then the period during which CAHOOTS stopped servicing Eugene. This will allow us to see if there is any change in MCSLC's activity, if other agencies, like the EPD, took over some calls that CAHOOTS used to handle, and how it impacted call outcomes in general.
+
+### Temporal filtering and harmonization
+
+First, let's filter the data to keep only the relevant time periods: 
+- CAHOOTS and MCSLC active: August 18, 2024 to April 7, 2025
+- After CAHOOTS stopped services: April 8, 2025 to present
 
 
 
