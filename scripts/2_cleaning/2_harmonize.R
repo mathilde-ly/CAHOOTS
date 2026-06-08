@@ -15,6 +15,11 @@ cad <- read.csv("data/processed/eugene_cad_2015_2025.csv")
 spd <- read.csv("data/processed/spd_2015_2025.csv")
 mcslc <- read.csv("data/processed/mcs_lc.csv")
 
+cad %>% 
+  filter(timestamp > as.POSIXct("2025-04-07")) %>% 
+  filter(CAHOOTS == 1) %>% 
+  count()
+
 glimpse(cad)
 glimpse(spd)
 glimpse(mcslc)
@@ -139,7 +144,10 @@ unique(data_merged$outcome)
 unique(data_merged$nature)
 
 
-
+data_merged %>% 
+  filter(timestamp >= as.POSIXct("2025-04-07")) %>% 
+  filter(CAHOOTS == 1) %>% 
+  count()
 
 # ============ save ============ #
 

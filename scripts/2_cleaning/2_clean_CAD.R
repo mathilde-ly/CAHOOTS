@@ -137,9 +137,16 @@ eugene_cad_mapped <- eugene_cad %>% # only dispatched calls
          prime_unit != "NULL" # checked, every null prime unit is a disregarded or similar close code
          ) %>%
   mutate(
-    CAHOOTS = if_else(agency == "CAHOOTS", 1, 0),
+    stop_date = as.Date("2025-04-07"),
     
-    CAHOOTS = if_else(prime_unit %in% cahoots_units, 1, CAHOOTS),
+    is_cahoots_period = if_else(as.Date(timestamp) <= stop_date, TRUE, FALSE),
+    
+    CAHOOTS = case_when(
+      !is_cahoots_period ~ 0,
+      agency == "CAHOOTS" ~ 1,
+      prime_unit %in% cahoots_units ~ 1,
+      TRUE ~ 0
+    ),
     
     EPD = case_when(
       prime_unit %in% cahoots_units & nb_units_dispatched > 1 ~ 1,
@@ -228,6 +235,10 @@ eugene_cad_mapped %>%
 # =========== SAVE ============ #
 
 write_csv(eugene_cad_mapped, "data/processed/eugene_cad_2015_2025.csv")
+
+eugene_cad_mapped %>% filter(timestamp > as.POSIXct("2025-04-08"), 
+                CAHOOTS == 1) %>%
+  nrow()
 
 
 
