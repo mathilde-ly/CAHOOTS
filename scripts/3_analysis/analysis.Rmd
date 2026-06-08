@@ -27,8 +27,9 @@ knitr::opts_chunk$set(
 
 ```{r libraries}
 
-library(here) # for relative paths
+library(here)
 library(tidyverse)
+library(tidytext)
 library(dplyr)
 library(scales)
 library(readxl)
@@ -36,11 +37,12 @@ library(purrr)
 library(janitor)
 library(lubridate)
 library(hms)
+library(patchwork)
 
 ```
 
 ```{r data}
-data <- readRDS(here("data/clean/data_merged.rds"))
+data <- readRDS(here("data", "clean", "data_merged.rds"))
 ```
 
 ```{r color palette}
@@ -50,7 +52,7 @@ color_agencies <- c(
   "EPD"     = "#2ACCFE",  
   "SPD"     = "#FEA4E6",  
   "CAHOOTS" = "#58BF03",  
-  "MCS_LC"   = "#FF8C66"   
+  "MCSLC"   = "#FF8C66"   
 )
 
 ```
@@ -77,19 +79,9 @@ This project uses [`renv`](https://rstudio.github.io/renv/) for R package manage
 
 If you add new packages, use `renv::snapshot()` to update the lockfile.
 
-
-
-
-
-
-
 # Data
 
-The data used in this analysis is processed and merged from the following sources.
-
-```{r data glimpse}
-glimpse(data)
-```
+The data used in this analysis is processed and merged from the following sources. The final dataset includes every agency (EPD, SPD, CAHOOTS and MCSLC), and dispatched calls only, from 2015-01-01 to 2025-12-31.
 
 ## Available raw data
 
@@ -179,18 +171,19 @@ This dataset tracks crisis intervention activities from MCS LC, focusing on resp
 
 
 
-# Analysis
+# Overview and exploratory analysis
 
 The following analysis will focus on investigating the changes in Eugene's response to non-violent emergencies related to homelessness, addiction and mental health after MCS LC's launch on August 18th 2024 and CAHOOTS' discontinuation on April 7th 2025 in Eugene.
 
-## Overview and exploratory analysis
+## Summary
 
-Let's begin with an generic overview and exploratory analysis of the data.
+Let's begin with a generic overview and exploratory analysis of the data.
 
 ```{r glimpse}
 glimpse(data)
 ```
 
+## Global Call Volume
 
 ```{r global call volume}
 
@@ -233,12 +226,16 @@ ggplot(data_nature_cahoots, aes(x = reorder(nature, n), y = n)) +
 
 ```
 
+## Evolution In Time
 
-After 
+Here is a timeline of CAHOOTS' and MCSLC's dispatched calls evolution between 2015 and 2025. We can see that right after CAHOOTS stopped, MCSLC's number of dispatches went up.
 
 ```{r evolution in time,fig.align = "center", fig.width = 7.5, fig.height = 4.5, fig.cap = "Monthly evolution of call volume by mcs agency (2015-2025)"}
 
+remarkable_dates <- as.Date(c("2024-08-18", "2025-04-07"))
+
 data_chronologie <- data %>%
+  filter(city == "Eugene") %>%
   mutate(Mois = floor_date(timestamp, "month")) %>%
   group_by(Mois) %>%
   summarise(
@@ -248,18 +245,27 @@ data_chronologie <- data %>%
   pivot_longer(cols = c(CAHOOTS, MCS_LC), names_to = "Service", values_to = "Volume")
 
 ggplot(data_chronologie, aes(x = Mois, y = Volume, color = Service)) +
+  geom_vline(xintercept = as.POSIXct(remarkable_dates), 
+           linetype = "dashed", color = "red", size = 0.7) +
+  geom_text(data = data.frame(dates = remarkable_dates, label = c("MCSLC", " CAHOOTS")),
+            aes(x = dates, y = max(data_chronologie$Volume), label = label),
+            inherit.aes = FALSE, angle = 90, vjust = -0.5, color = "red") +
+  coord_cartesian(clip = "off") +
   geom_line(size = 0.8) +
   scale_color_manual(values = color_agencies) +  
   labs(
-    title = "Timeline for Mobile Crisi Services",
+    title = "Timeline for Mobile Crisis Services",
     subtitle = "Monthly intervention volume",
     x = "Chronology (Month)",
     y = "Number of dispatched calls"
   ) +
-  theme_minimal() 
+  theme_minimal() +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
 
 ```
 
+## Broad Categories Overview
+Next is a general overview of broad outcome categories for every existing call nature, for the whole dataset (EPD, SPD, MCSLC and CAHOOTS responses).  
 
 ```{r plot aggregated outcomes, fig.width = 10, fig.height = 5.5}
 
@@ -326,17 +332,362 @@ ggplot(data_outcomes, aes(x = response_profile, y = Proportion, fill = macro_out
 ```
 
 
-
-
-## CAHOOTS and MCSLC comparison
+# Analysis of Call Outcome 
 
 To better understand the effects of CAHOOTS' discontinuation and MCSLC's roll-out, we will be focusing on the time period where they were both active, and then the period during which CAHOOTS stopped servicing Eugene. This will allow us to see if there is any change in MCSLC's activity, if other agencies, like the EPD, took over some calls that CAHOOTS used to handle, and how it impacted call outcomes in general.
 
-### Temporal filtering and harmonization
+## Temporal Filtering and Harmonization
 
 First, let's filter the data to keep only the relevant time periods: 
 - CAHOOTS and MCSLC active: August 18, 2024 to April 7, 2025
 - After CAHOOTS stopped services: April 8, 2025 to present
+
+To do so, we define the temporal boundaries in datetime variables. We then group the data into weekly bins to smooth out daily fluctuations, and we sort the the calls into the `Overlap` and the `Post-CAHOOTS` categories, respectively the MCSLC and CAHOOTS joint period, and the only MCSLC period. We exclude all historical data, before August 18, 2024 when MCSLC started to maintain a strictly controlled analytical scope.
+
+
+```{r temporal filtering}
+date_mcslc_start <- as.POSIXct("2024-08-18")
+date_cahoots_stop <- as.POSIXct("2025-04-07")
+date_end <- as.POSIXct("2025-12-17") 
+
+data_temporal <- data %>%
+  mutate(
+    week = floor_date(timestamp, "week"),
+    period = case_when(
+      timestamp >= date_mcslc_start & timestamp <= date_cahoots_stop ~ "Overlap",
+      timestamp > date_cahoots_stop & timestamp <= date_end ~ "Post-CAHOOTS",
+      TRUE ~ "Exclude"
+    )
+  ) %>%
+  filter(period != "Exclude")
+
+```
+The overlap period is 232 days long, and the post-CAHOOTS period has 254 days.
+
+```{r days count, include = FALSE}
+
+date_mcslc_start <- as.POSIXct("2024-08-18")
+date_cahoots_stop <- as.POSIXct("2025-04-07")
+date_end <- as.POSIXct("2025-12-17")
+
+days_overlap <- as.numeric(difftime(date_cahoots_stop, date_mcslc_start, units = "days"))
+
+days_post <- as.numeric(difftime(date_end, date_cahoots_stop, units = "days"))
+```
+
+
+We have 9038 dispatches for CAHOOTS and 1116 dispatches for MCSLC during the overlap period. During the post-CAHOOTS period, we have 5894 MCSLC dispatches.
+
+```{r count dispatches per period, include = FALSE}
+data_temporal %>%
+  filter(period == "Overlap", city == "Eugene", CAHOOTS == 1) %>%
+  count()
+data_temporal %>%
+  filter(period == "Overlap", city == "Eugene", MCSLC == 1) %>%
+  count()
+data_temporal %>%
+  filter(period == "Post-CAHOOTS", city == "Eugene", MCSLC == 1) %>%
+  count()
+```
+
+Here is an overview of the filtered data.
+
+For MCLSC dispatches, we have the 7 following possible outcomes. Most of dispatched calls end with **Remaine In Community**, and we note that some calls end with **Arrest**.
+
+```{r MCSLC temporal outcomes}
+data_temporal %>%
+  filter(MCSLC == 1) %>%
+  count(outcome) %>%
+  slice_max(n, n = 7)
+```
+
+CAHOOTS only calls have 35 possible outcomes. Here are the 10 most frequent ones, with **Assisted** and **Unable To Locate being the most frequent ones**. For CAHOOTS, most of the interventions are closed as **Assisted** with no further detail. Some outcomes are from CAHOOTS and EPD joint responses. EPD interventions are often closed with different outcomes for the same type of call, we can assume that these outcomes are similar but just registered under a different name.
+
+```{r CAHOOTS temporal outcomes}
+data_temporal %>%
+  filter(CAHOOTS == 1, EPD == 0) %>%
+  count(outcome) %>%
+  slice_max(n, n = 36)
+```
+
+
+## CAHOOTS vs MCSLC
+
+### Overlap Period Comparison
+
+The goal here is to look at CAHOOTS and MCSLC's types of services. We extract the most frequent call natures for both agencies. For this time period and city, CAHOOTS has 12 call natures, with **Public Assist** and **Check Welfare** being the most common ones. MCSLC has 14, **Agitation or Disruptive Behavior** and **Disorganized Behavior** are the two most common.
+
+```{r top 14 natures}
+data_nature_overlap <- data_temporal %>%
+  filter(period == "Overlap", city == "Eugene") %>%
+  filter(CAHOOTS == 1 | MCSLC == 1) %>%
+  mutate(agency = case_when(
+    CAHOOTS == 1 & MCSLC == 0 ~ "CAHOOTS",
+    MCSLC == 1 & CAHOOTS == 0 ~ "MCSLC",
+  )) %>%
+  filter(!is.na(agency)) %>%
+  count(agency, nature, sort = TRUE) %>%
+  group_by(agency) %>%
+  slice_max(n, n = 20) %>%
+  mutate(nature = reorder_within(nature, n, agency))
+
+
+ggplot(data_nature_overlap, aes(x = nature, y = n, fill = agency)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  scale_fill_manual(values = color_agencies) +
+  facet_wrap(~agency, scales = "free_y") +
+  coord_flip() +
+  labs(
+    title = "Most frequent call natures by agency during overlap period",
+    subtitle = "Aug 18, 2024 – Apr 7, 2025 | Eugene",
+    x = NULL, y = "Number of dispatched calls"
+  ) +
+  theme_minimal()
+```
+
+
+Here is the call outcome distribution by agency during the overlap period.
+
+```{r}
+data_outcome_overlap <- data_temporal %>%
+  filter(period == "Overlap", city == "Eugene") %>%
+  filter(CAHOOTS == 1 | MCSLC == 1) %>%
+  mutate(agency = case_when(
+    CAHOOTS == 1 & MCSLC == 0 ~ "CAHOOTS",
+    MCSLC == 1 & CAHOOTS == 0 ~ "MCSLC",
+    CAHOOTS == 1 & MCSLC == 1 ~ "Joint"
+  )) %>%
+  filter(!is.na(agency)) %>%
+  count(agency, outcome) %>%
+  group_by(agency) %>%
+  mutate(prop = n / sum(n)) %>%
+  group_by(agency) %>%
+  slice_max(n, n = 10)
+
+ggplot(data_outcome_overlap, aes(x = reorder_within(outcome, prop, agency), 
+                                  y = prop, fill = agency)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_fill_manual(values = color_agencies) +
+  facet_wrap(~agency, scales = "free_y") +
+  coord_flip() +
+  labs(
+    title = "Outcome distribution by agency during overlap period",
+    subtitle = "Aug 18, 2024 – Apr 7, 2025 | Eugene",
+    x = NULL, y = "Share of calls"
+  ) +
+  theme_minimal()
+```
+
+If we reuse the broad outcome category from the exploratory analysis, we find the following numbers. We will dive in deeper and more precisely in the following subsections of this analysis.
+
+```{r}
+data_temporal %>%
+  filter(period == "Overlap", city == "Eugene") %>%
+  filter(CAHOOTS == 1 | MCSLC == 1) %>%
+  mutate(
+    agency = case_when(
+      CAHOOTS == 1 & MCSLC == 0 ~ "CAHOOTS",
+      MCSLC == 1 & CAHOOTS == 0 ~ "MCSLC",
+      TRUE ~ "Joint"
+    ),
+    outcome_clean = str_to_lower(as.character(outcome)),
+    macro_outcome = case_when(
+    str_detect(outcome_clean, "arrest|custody|citation") ~ "Arrest",
+    
+    str_detect(outcome_clean, "emergency department|hospital|medical|detox|sobering") ~ "ED / Crisis Facility",
+    outcome_clean == "crisis walk-in center" ~ "ED / Crisis Facility",
+    outcome_clean == "respite" ~ "ED / Crisis Facility",
+    
+    str_detect(outcome_clean, "assist|advised|resolved|counseling|welfare check done") ~ "Community Support",
+    outcome_clean == "remained in community" ~ "Community Support",
+    
+    str_detect(outcome_clean, "unable to locate|gone on arrival|disregard") ~ "No Contact",
+    
+    str_detect(outcome_clean, "refused") ~ "Refused Services",
+    
+    TRUE ~ "Other"
+  )
+  ) %>%
+  count(agency, macro_outcome) %>%
+  group_by(agency) %>%
+  mutate(prop = scales::percent(n / sum(n), accuracy = 0.1)) %>%
+  arrange(agency, desc(n)) %>%
+  knitr::kable(
+    caption = "Broad outcome category distribution by agency during overlap period (Eugene, Aug 2024 – Apr 2025)",
+    col.names = c("Agency", "Outcome", "Count", "Share")
+  )
+```
+
+#### Breakdown of Call Outcome
+
+
+```{r outcome distribution plot}
+make_outcome_nature_dual <- function(df, agency_col, agency_label, top_n_natures) {
+  
+  top_natures <- df %>%
+    filter(period == "Overlap", city == "Eugene", .data[[agency_col]] == 1) %>%
+    count(nature, sort = TRUE) %>%
+    slice_head(n = top_n_natures) %>%
+    pull(nature)
+  
+  df_plot <- df %>%
+    filter(period == "Overlap", city == "Eugene", .data[[agency_col]] == 1,
+           nature %in% top_natures) %>%
+    count(nature, outcome) %>%
+    group_by(nature) %>%
+    mutate(
+      prop = n / sum(n),
+      nature = factor(nature, levels = rev(top_natures))
+    )
+  
+  p_abs <- ggplot(df_plot, aes(x = nature, y = n, fill = outcome)) +
+    geom_col(position = "stack", width = 0.7) +
+    scale_y_continuous(labels = comma) +
+    coord_flip() +
+    labs(
+      title = "Absolute counts",
+      x = NULL, y = "Number of calls", fill = "Outcome"
+    ) +
+    theme_minimal(base_size = 10) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold", size = 10)
+    )
+  
+  p_pct <- ggplot(df_plot, aes(x = nature, y = prop, fill = outcome)) +
+    geom_col(position = "fill", width = 0.7) +
+    scale_y_continuous(labels = percent_format(accuracy = 1)) +
+    coord_flip() +
+    labs(title = "Relative proportions", x = NULL, y = "Share of calls", fill = "Outcome") +
+    theme_minimal(base_size = 10) +
+    theme(
+      legend.position = "bottom",
+      legend.direction = "horizontal",    # Forcer l'horizontal
+      legend.box = "horizontal",          # Modifier ceci
+      legend.text = element_text(size = 6), # Réduire un peu plus
+      legend.title = element_blank(),     # Enlever le titre pour gagner de la place
+      legend.key.size = unit(0.2, "cm"),
+      plot.title = element_text(face = "bold", size = 10),
+      axis.text.y = element_blank()
+    )
+  
+  p_abs + p_pct +
+    plot_layout(widths = c(2.5, 1), guides = "collect") +
+    plot_annotation(
+      title = paste("Call outcome breakdown by nature —", agency_label),
+      subtitle = "Overlap period: Aug 18, 2024 – Apr 7, 2025 | Eugene only",
+      theme = theme(
+        legend.position = "bottom",
+        plot.title = element_text(face = "bold", size = 13),
+        plot.subtitle = element_text(size = 10, color = "#4A4A4A")
+      )
+    )
+}
+
+```
+
+
+During the overlap period, CAHOOTS handled a majority of **Public Assist** and **Check Welfare** calls, representing over half of all CAHOOTS calls in Eugene for this time period. The dominant outcome across almost all natures is **Assisted**, confirming that most CAHOOTS interventions resulted in direct on-scene support without escalation. 
+
+However, notable exceptions appear for **Info/Atl** and **Disoriented Subject**, where outcomes like **Gone On Arrival** and **Unable To Locate** are more frequent. **Arrest** is rare across all natures. 
+
+
+
+```{r outcomes distribution CAHOOTS}
+plot_cahoots_outcomes <- make_outcome_nature_dual(
+  data_temporal, 
+  "CAHOOTS", 
+  "CAHOOTS", 
+  top_n_natures = 12)
+
+plot_cahoots_outcomes
+```
+MCSLC's call volume during the overlap period is lower than CAHOOTS'. It could be due to its more recent launch and its separate dispatch pathway (they are outside of the 911 CAD system). While MCSLC's goal is to manage mental health, behavioral, and substance abuse crisis as well, their scope of action stays different than CAHOOTS'.
+
+The dominant outcome across all natures is **Remained in Community**. **Emergency Department** transport appears as a secondary outcome, especially for higher-risk natures such as **Suicidal Subect** and **Harm/Risk of Harm** calls.
+
+We also see some **Arrest** outcomes for some call natures, indicating a joint response from MCSLC and the EPD, even though they do not appear as responding agency in the data. MCSLC being on its own call line is not jointly dispatched along with the police, but they coordinate with other agencies if needed (EPD, other existing care providers...).
+
+
+```{r outcomes distribution MCSLC}
+plot_mcslc_outcomes <- make_outcome_nature_dual(
+  data_temporal, 
+  "MCSLC", 
+  "MCSLC", 
+  top_n_natures = 14)
+
+plot_mcslc_outcomes
+```
+
+
+
+
+
+
+
+### Post-CAHOOTS Call Outcome Evolution in Eugene
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -351,6 +702,19 @@ First, let's filter the data to keep only the relevant time periods:
 - SPD = Springfield Police Department
 - CAD = Computer-Aided Dispatch
 - MCS LC = Mobile Crisis Services Lane County
+
+
+
+
+
+
+
+- EPD: Eugene Police Department
+- CAHOOTS: Crisis Assistance Helping Out On the Streets
+- MCSLC : Mobile Crisis Services Lane County
+- SPD: Springfield Police Department
+
+- MCR: Mobile Crisis Response
 
 
 
