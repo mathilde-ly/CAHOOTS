@@ -41,6 +41,7 @@ library(patchwork)
 
 library(fixest)   
 library(did)   
+library(stargazer)
 
 ```
 
@@ -761,6 +762,13 @@ panel %>%
 
 We then test the parallel trends more rigorously to see if we can use the Differences in Differences method.
 
+H0 : both groups are the same before treatment
+H1 : trends are different
+
+we don't want to reject null hypothesis so p-value should be over 0.5 (for 95% certainty)
+
+Here p-value is 0.544 so the parallel trends passed, we can proceed with the DiD method.
+
 ```{r stat test parallel trends}
 
 pre_cahoots <- panel_cahoots_scope %>% filter(post == 0)
@@ -770,6 +778,8 @@ trend_test_cahoots <- lm(
   data    = pre_cahoots,
   weights = n_calls
 )
+stargazer(trend_test_cahoots)
+
 summary(trend_test_cahoots)
 ```
 
