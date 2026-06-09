@@ -39,6 +39,9 @@ library(lubridate)
 library(hms)
 library(patchwork)
 
+library(fixest)   
+library(did)   
+
 ```
 
 ```{r data}
@@ -626,30 +629,149 @@ plot_mcslc_outcomes
 
 
 
-
-
 ### Post-CAHOOTS Call Outcome Evolution in Eugene
 
+```{r}
+top_14_cahoots_natures <- c(
+  "Public Assist",
+  "Check Welfare",
+  "Transport",
+  "Suicidal Subject",
+  "Intoxicated Subject",
+  "Disorderly Subject",
+  "Found Syringe",
+  "Info / Atl",
+  "Disoriented Subject",
+  "Dispute",
+  "Subject Down",
+  "Disorderly Juveniles",
+  "Suspicious Conditions",
+  "Police Officer Hold"
+)
+
+top_mcslc_natures <- c(
+  "Agitation Or Disruptive Behavior",
+  "Disorganized Behavior",
+  "Difficulty Functioning",
+  "Needing Social/Mental Health Services",
+  "Suicidal Subject",
+  "Harm/Risk Of Harm To Self/Others/Property",
+  "Adult Social/Interpersonal Problems",
+  "Paranoia",
+  "Substance Use",
+  "Other",
+  "Concerns About Treatment Engagement",
+  "Trauma",
+  "Running Away",
+  "Seeking Mental Health Services"
+)
+
+```
+
+
+Differences in Differences
+
+Did CAHOOTS' discontinuation induce and increase in arrests in Eugene?
+
+
+First we harmonize the data by calculating the weekly rolling average arrest rate per week for Eugene and Springfield, using only CAHOOTS call types (agency is not necessarily CAHOOTS).
+
+```{r weekly data}
+
+panel <- data %>%
+  filter(
+    city %in% c("Eugene", "Springfield"),
+    timestamp >= as.POSIXct("2023-01-01"),
+    nature %in% top_14_cahoots_natures      
+  ) %>%
+  mutate(
+    week    = floor_date(timestamp, "week"),
+    treated = as.integer(city == "Eugene"),
+    post    = as.integer(timestamp >= date_cahoots_stop),
+    arrest  = as.integer(str_detect(str_to_lower(outcome),
+                "arrest|juvenile taken into custody"))
+  ) %>%
+  group_by(city, week, treated) %>%
+  summarise(
+    n_calls     = n(),
+    n_arrests   = sum(arrest, na.rm = TRUE),
+    arrest_rate = n_arrests / n_calls,
+    post        = max(post),
+    .groups     = "drop"
+  ) %>%
+  mutate(week_num = as.numeric(difftime(week, min(week), units = "weeks")))
+
+```
 
 
 
+Here is a plot of the trends side by side for a visual overview. We can see that the arrest rates trend for each city is quite similar before the discontinuation, but Eugene's volume is superior. After CAHOOTS stopped servicing Eugene, we observe a surge in arrest whereas Springfield's stays similar. 
+
+```{r parallel trends}
+
+# Semaine de discontinuation pour le repère visuel
+vline_date <- as.Date("2025-04-07")
+
+parallel_trends_check <- panel %>%
+  # Lisser par moyenne mobile 4 semaines pour la lisibilité
+  group_by(city) %>%
+  arrange(week) %>%
+  mutate(arrest_rate_smooth = zoo::rollmean(arrest_rate, k = 4, fill = NA, align = "right")) %>%
+  ggplot(aes(x = week, y = arrest_rate_smooth, color = city)) +
+  geom_line(linewidth = 0.9) +
+  geom_vline(xintercept = as.POSIXct(vline_date),
+             linetype = "dashed", color = "red", linewidth = 0.8) +
+  annotate("text", x = as.POSIXct(vline_date), 
+           y = Inf, label = "CAHOOTS stops\n(Eugene)", 
+           vjust = 1.5, hjust = -0.1, color = "red", size = 3.5) +
+  scale_color_manual(values = c("Eugene" = "#2ACCFE", "Springfield" = "#FEA4E6")) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  labs(
+    title    = "Arrest Rate by City, Parallel Trends Check",
+    subtitle = "4-week rolling average for most frequent CAHOOTS call natures",
+    x = NULL, y = "Arrest Rate", color = "City"
+  ) +
+  theme_minimal() 
+
+ggsave("../../figures/analysis/parallel_trends_check.png", parallel_trends_check, width = 10, height = 5, dpi = 180)
+
+parallel_trends_check
 
 
+```
+
+The linear trends shows with more precision that Eugene saw an increase in arrests and Springfield's rate is relatively constant over time.
+
+```{r linear trends}
+
+panel %>%
+  ggplot(aes(x = week, y = arrest_rate, color = city)) +
+  geom_line(alpha = 0.3, linewidth = 0.4) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+  geom_vline(xintercept = as.POSIXct("2025-04-07"),
+             linetype = "dashed", color = "red") +
+  facet_wrap(~city, scales = "free_y") +  
+  scale_color_manual(values = c("Eugene" = "#2ACCFE", "Springfield" = "#FEA4E6")) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  labs(title = "Raw arrest rate and linear trend by city",
+       subtitle = "free y-axis scale per city") +
+  theme_minimal()
+```
 
 
+We then test the parallel trends more rigorously to see if we can use the Differences in Differences method.
 
+```{r stat test parallel trends}
 
+pre_cahoots <- panel_cahoots_scope %>% filter(post == 0)
 
-
-
-
-
-
-
-
-
-
-
+trend_test_cahoots <- lm(
+  arrest_rate ~ week_num * treated,
+  data    = pre_cahoots,
+  weights = n_calls
+)
+summary(trend_test_cahoots)
+```
 
 
 
