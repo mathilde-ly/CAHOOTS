@@ -173,8 +173,6 @@ This dataset tracks crisis intervention activities from MCS LC, focusing on resp
 | `minutes_arrival_departure`  | double    | 13                    | Total time spent on scene in minutes (arrival to departure).                |
 
 
-
-
 # Overview and exploratory analysis
 
 The following analysis will focus on investigating the changes in Eugene's response to non-violent emergencies related to homelessness, addiction and mental health after MCS LC's launch on August 18th 2024 and CAHOOTS' discontinuation on April 7th 2025 in Eugene.
@@ -203,7 +201,7 @@ data %>%
   knitr::kable(caption = "Global repartition of call volume per city and agency")
 ```
 
-The most frequent natures for CAHOOTS calls are Public Assist and Check Welfare. These will be our main focus for the whole analysis, along with some other call natures appearing in the plot.
+The most frequent natures for CAHOOTS calls are Public Assist and Check Welfare. These will be our main focus for the whole analysis, along with some other call natures appearing in the plot. Total, we will use the top 14 most frequent natures in calls handled by CAHOOTS in both Eugene and Springfield, and the mcslc natures (14).
 
 ```{r cahoots natures, fig.align = "center", fig.width = 7, fig.height = 4.5, fig.cap = "Top 10 most frequent call natures for CAHOOTS dispatches"}
 
@@ -227,6 +225,45 @@ ggplot(data_nature_cahoots, aes(x = reorder(nature, n), y = n)) +
     x = "Nature of incident",
     y = "Number of interventions"
   )
+
+```
+
+
+```{r most frequent natures}
+
+top_14_cahoots_natures <- c(
+  "Public Assist",
+  "Check Welfare",
+  "Transport",
+  "Suicidal Subject",
+  "Intoxicated Subject",
+  "Disorderly Subject",
+  "Found Syringe",
+  "Info / Atl",
+  "Disoriented Subject",
+  "Dispute",
+  "Subject Down",
+  "Disorderly Juveniles",
+  "Suspicious Conditions",
+  "Police Officer Hold"
+)
+
+top_mcslc_natures <- c(
+  "Agitation Or Disruptive Behavior",
+  "Disorganized Behavior",
+  "Difficulty Functioning",
+  "Needing Social/Mental Health Services",
+  "Suicidal Subject",
+  "Harm/Risk Of Harm To Self/Others/Property",
+  "Adult Social/Interpersonal Problems",
+  "Paranoia",
+  "Substance Use",
+  "Other",
+  "Concerns About Treatment Engagement",
+  "Trauma",
+  "Running Away",
+  "Seeking Mental Health Services"
+)
 
 ```
 
@@ -336,11 +373,11 @@ ggplot(data_outcomes, aes(x = response_profile, y = Proportion, fill = macro_out
 ```
 
 
-# Analysis of Call Outcome 
+## Exploratory Analysis of Call Outcome 
 
 To better understand the effects of CAHOOTS' discontinuation and MCSLC's roll-out, we will be focusing on the time period where they were both active, and then the period during which CAHOOTS stopped servicing Eugene. This will allow us to see if there is any change in MCSLC's activity, if other agencies, like the EPD, took over some calls that CAHOOTS used to handle, and how it impacted call outcomes in general.
 
-## Temporal Filtering and Harmonization
+### Temporal Filtering and Harmonization
 
 First, let's filter the data to keep only the relevant time periods: 
 - CAHOOTS and MCSLC active: August 18, 2024 to April 7, 2025
@@ -415,9 +452,9 @@ data_temporal %>%
 ```
 
 
-## CAHOOTS vs MCSLC
+### CAHOOTS vs MCSLC
 
-### Overlap Period Comparison
+#### Overlap Period Comparison
 
 The goal here is to look at CAHOOTS and MCSLC's types of services. We extract the most frequent call natures for both agencies. For this time period and city, CAHOOTS has 12 call natures, with **Public Assist** and **Check Welfare** being the most common ones. MCSLC has 14, **Agitation or Disruptive Behavior** and **Disorganized Behavior** are the two most common.
 
@@ -630,52 +667,10 @@ plot_mcslc_outcomes
 
 
 
-### Post-CAHOOTS Call Outcome Evolution in Eugene
-
-```{r}
-top_14_cahoots_natures <- c(
-  "Public Assist",
-  "Check Welfare",
-  "Transport",
-  "Suicidal Subject",
-  "Intoxicated Subject",
-  "Disorderly Subject",
-  "Found Syringe",
-  "Info / Atl",
-  "Disoriented Subject",
-  "Dispute",
-  "Subject Down",
-  "Disorderly Juveniles",
-  "Suspicious Conditions",
-  "Police Officer Hold"
-)
-
-top_mcslc_natures <- c(
-  "Agitation Or Disruptive Behavior",
-  "Disorganized Behavior",
-  "Difficulty Functioning",
-  "Needing Social/Mental Health Services",
-  "Suicidal Subject",
-  "Harm/Risk Of Harm To Self/Others/Property",
-  "Adult Social/Interpersonal Problems",
-  "Paranoia",
-  "Substance Use",
-  "Other",
-  "Concerns About Treatment Engagement",
-  "Trauma",
-  "Running Away",
-  "Seeking Mental Health Services"
-)
-
-```
+# Post-CAHOOTS Call Outcome Evolution in Eugene
 
 
-Differences in Differences
-
-Did CAHOOTS' discontinuation induce and increase in arrests in Eugene?
-
-
-First we harmonize the data by calculating the weekly rolling average arrest rate per week for Eugene and Springfield, using only CAHOOTS call types (agency is not necessarily CAHOOTS).
+Now moving on the the call outcome evolution analysis, we start by harmonizing the data. We calculate the weekly rolling average arrest rate per week for Eugene and Springfield, using only CAHOOTS call types regardless of the agency in charge of the intervention.
 
 ```{r weekly data}
 
@@ -705,6 +700,7 @@ panel <- data %>%
 ```
 
 
+## Parallel trends check
 
 Here is a plot of the trends side by side for a visual overview. We can see that the arrest rates trend for each city is quite similar before the discontinuation, but Eugene's volume is superior. After CAHOOTS stopped servicing Eugene, we observe a surge in arrest whereas Springfield's stays similar. 
 
@@ -762,32 +758,141 @@ panel %>%
 
 We then test the parallel trends more rigorously to see if we can use the Differences in Differences method.
 
-H0 : both groups are the same before treatment
-H1 : trends are different
+| H0 : both groups are the same before treatment (parallel trends)
+| H1 : trends are different
 
 we don't want to reject null hypothesis so p-value should be over 0.5 (for 95% certainty)
 
-Here p-value is 0.544 so the parallel trends passed, we can proceed with the DiD method.
+Here p-value is 0.544 so the parallel trends passed, meaning that before CAHOOTS was discontinued, arrest rate trends were similar in Eugene and Springfield for call natures typically handled by CAHOOTS, regardless of the agency in charge. We can proceed with the DiD method.
 
 ```{r stat test parallel trends}
 
-pre_cahoots <- panel_cahoots_scope %>% filter(post == 0)
+pre_cahoots <- panel %>% filter(post == 0)
 
 trend_test_cahoots <- lm(
   arrest_rate ~ week_num * treated,
   data    = pre_cahoots,
   weights = n_calls
 )
-stargazer(trend_test_cahoots)
 
 summary(trend_test_cahoots)
 ```
 
+## Differences in Differences
+
+Ordinary Least Squares (Moindres Carrés ordinaires)
+Y = beta_0 + beta_1*x 
+
+insignificant results
+
+```{r}
+library(fixest)
+
+# --- Variable de période relative ---
+treatment_week_num <- panel %>%
+  filter(week >= as.Date("2025-04-07")) %>%
+  pull(week_num) %>% min()
+
+panel <- panel %>%
+  mutate(rel_week = week_num - treatment_week_num)
+
+# --- TWFE baseline ---
+twfe <- feols(
+  arrest_rate ~ i(post, treated, ref = 0) | city + week_num,
+  data    = panel,
+  weights = ~n_calls,
+  cluster = ~city
+)
+summary(twfe)
+
+# --- Event study ---
+event_study <- feols(
+  arrest_rate ~ i(rel_week, treated, ref = -1) | city + week_num,
+  data    = panel,
+  weights = ~n_calls,
+  cluster = ~city
+)
+
+iplot(event_study,
+      xlab  = "Weeks relative to CAHOOTS discontinuation",
+      ylab  = "Estimated effect on arrest rate",
+      main  = "Event Study — Effect of CAHOOTS Discontinuation on Arrest Rate",
+      ref.line = 1)
+abline(v = 0, col = "red", lty = 2)
+```
+
+try monthly data
+
+```{r}
+panel_monthly <- data %>%
+  filter(
+    city %in% c("Eugene", "Springfield"),
+    timestamp >= as.POSIXct("2023-01-01"),
+    nature %in% top_14_cahoots_natures
+  ) %>%
+  mutate(
+    month   = floor_date(timestamp, "month"),
+    treated = as.integer(city == "Eugene"),
+    post    = as.integer(timestamp >= date_cahoots_stop),
+    arrest  = as.integer(str_detect(str_to_lower(as.character(outcome)),
+                "arrest|juvenile taken into custody"))
+  ) %>%
+  group_by(city, month, treated) %>%
+  summarise(
+    n_calls     = n(),
+    n_arrests   = sum(arrest, na.rm = TRUE),
+    arrest_rate = n_arrests / n_calls,
+    post        = max(post),
+    .groups     = "drop"
+  ) %>%
+  mutate(
+    month_num = as.numeric(difftime(month, min(month), units = "days")) / 30
+  )
+
+# Vérification parallel trends sur panel mensuel
+pre_monthly <- panel_monthly %>% filter(post == 0)
+
+trend_test_monthly <- lm(
+  arrest_rate ~ month_num * treated,
+  data    = pre_monthly,
+  weights = n_calls
+)
+summary(trend_test_monthly)
+```
+
+```{r}
+twfe_simple <- feols(
+  arrest_rate ~ treated * post | city,
+  data    = panel_monthly,
+  weights = ~n_calls,
+  cluster = ~city
+)
+summary(twfe_simple)
+
+```
+
+
+```{r}
+did_ols <- lm(
+  arrest_rate ~ treated * post,
+  data    = panel_monthly,
+  weights = n_calls
+)
+summary(did_ols)
+```
++3.17 percentage points arrest rate in eugene compared to springfield for same period, highly signif ***
 
 
 
+TO DO WEDNESDAY
 
+- put graph in report
+- explain method in report
+- add theory behind method and statistical testing (equations etc)
 
+- do DiD with data
+- write State of the Art
+- wrap up 
 
 
 
