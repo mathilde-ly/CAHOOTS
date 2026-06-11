@@ -42,6 +42,7 @@ library(patchwork)
 library(fixest)   
 library(did)   
 library(stargazer)
+library(broom)
 
 ```
 
@@ -200,6 +201,8 @@ data %>%
   ) %>%
   knitr::kable(caption = "Global repartition of call volume per city and agency")
 ```
+
+## Frequent Natures
 
 The most frequent natures for CAHOOTS calls are Public Assist and Check Welfare. These will be our main focus for the whole analysis, along with some other call natures appearing in the plot. Total, we will use the top 14 most frequent natures in calls handled by CAHOOTS in both Eugene and Springfield, and the mcslc natures (14).
 
@@ -363,10 +366,10 @@ ggplot(data_outcomes, aes(x = response_profile, y = Proportion, fill = macro_out
   theme(
     plot.title = element_text(face = "bold", size = 14, color = "#1D3557"),
     plot.subtitle = element_text(size = 11, color = "#4A4A4A"),
-    panel.background = element_rect(fill = "#FFFFFF", color = NA),
+    panel_arrest.background = element_rect(fill = "#FFFFFF", color = NA),
     plot.background = element_rect(fill = "#FFFFFF", color = NA),
-    panel.grid.major.y = element_blank(), 
-    panel.grid.minor = element_blank(),
+    panel_arrest.grid.major.y = element_blank(), 
+    panel_arrest.grid.minor = element_blank(),
     legend.position = "top",        
     axis.text.y = element_text(face = "bold", color = "#1D3557")
   )
@@ -669,12 +672,16 @@ plot_mcslc_outcomes
 
 # Post-CAHOOTS Call Outcome Evolution in Eugene
 
+## Arrests
 
 Now moving on the the call outcome evolution analysis, we start by harmonizing the data. We calculate the weekly rolling average arrest rate per week for Eugene and Springfield, using only CAHOOTS call types regardless of the agency in charge of the intervention.
 
-```{r weekly data}
+```{r filtered arrest weekly data}
+date_mcslc_start <- as.POSIXct("2024-08-18")
+date_cahoots_stop <- as.POSIXct("2025-04-07")
+date_end <- as.POSIXct("2025-12-17") 
 
-panel <- data %>%
+panel_arrest <- data %>%
   filter(
     city %in% c("Eugene", "Springfield"),
     timestamp >= as.POSIXct("2023-01-01"),
@@ -700,17 +707,18 @@ panel <- data %>%
 ```
 
 
-## Parallel trends check
+### Parallel Trends
+
+#### Line Plot
 
 Here is a plot of the trends side by side for a visual overview. We can see that the arrest rates trend for each city is quite similar before the discontinuation, but Eugene's volume is superior. After CAHOOTS stopped servicing Eugene, we observe a surge in arrest whereas Springfield's stays similar. 
 
 ```{r parallel trends}
 
-# Semaine de discontinuation pour le repère visuel
 vline_date <- as.Date("2025-04-07")
 
-parallel_trends_check <- panel %>%
-  # Lisser par moyenne mobile 4 semaines pour la lisibilité
+parallel_trends_check <- panel_arrest %>%
+  # MM(4)
   group_by(city) %>%
   arrange(week) %>%
   mutate(arrest_rate_smooth = zoo::rollmean(arrest_rate, k = 4, fill = NA, align = "right")) %>%
@@ -724,24 +732,26 @@ parallel_trends_check <- panel %>%
   scale_color_manual(values = c("Eugene" = "#2ACCFE", "Springfield" = "#FEA4E6")) +
   scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
   labs(
-    title    = "Arrest Rate by City, Parallel Trends Check",
-    subtitle = "4-week rolling average for most frequent CAHOOTS call natures",
+    title    = "Arrest Rate by City",
+    subtitle = "4-week rolling average for the 14 most frequent CAHOOTS call natures",
     x = NULL, y = "Arrest Rate", color = "City"
   ) +
   theme_minimal() 
 
-ggsave("../../figures/analysis/parallel_trends_check.png", parallel_trends_check, width = 10, height = 5, dpi = 180)
+ggsave("../../figures/analysis/arrest_rate_by_city.png", parallel_trends_check, width = 10, height = 5, dpi = 180)
 
 parallel_trends_check
 
 
 ```
 
+
+#### Linear Trends
 The linear trends shows with more precision that Eugene saw an increase in arrests and Springfield's rate is relatively constant over time.
 
 ```{r linear trends}
 
-panel %>%
+linear_trends <- panel_arrest %>%
   ggplot(aes(x = week, y = arrest_rate, color = city)) +
   geom_line(alpha = 0.3, linewidth = 0.4) +
   geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
@@ -750,24 +760,28 @@ panel %>%
   facet_wrap(~city, scales = "free_y") +  
   scale_color_manual(values = c("Eugene" = "#2ACCFE", "Springfield" = "#FEA4E6")) +
   scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-  labs(title = "Raw arrest rate and linear trend by city",
+  labs(title = "Arrest rate and linear trend by city",
        subtitle = "free y-axis scale per city") +
   theme_minimal()
+
+ggsave("../../figures/analysis/linear_trends.png", linear_trends, width = 10, height = 5, dpi = 180)
+
+linear_trends
 ```
 
+#### Statistical Test 
 
 We then test the parallel trends more rigorously to see if we can use the Differences in Differences method.
 
-| H0 : both groups are the same before treatment (parallel trends)
-| H1 : trends are different
+H0 : both groups are the same before treatment (parallel trends)
+H1 : trends are different
 
 we don't want to reject null hypothesis so p-value should be over 0.5 (for 95% certainty)
 
 Here p-value is 0.544 so the parallel trends passed, meaning that before CAHOOTS was discontinued, arrest rate trends were similar in Eugene and Springfield for call natures typically handled by CAHOOTS, regardless of the agency in charge. We can proceed with the DiD method.
 
 ```{r stat test parallel trends}
-
-pre_cahoots <- panel %>% filter(post == 0)
+pre_cahoots <- panel_arrest %>% filter(post == 0)
 
 trend_test_cahoots <- lm(
   arrest_rate ~ week_num * treated,
@@ -775,122 +789,146 @@ trend_test_cahoots <- lm(
   weights = n_calls
 )
 
-summary(trend_test_cahoots)
+stargazer(trend_test_cahoots,
+          type = "text",
+          title = "Parallel Trends Check",
+          covariate.labels = c("Week Number",
+                               "Treated",
+                               "Week Number:Treated"),
+          dep.var.labels = "Arrest Rate")
 ```
 
-## Differences in Differences
+### Differences in Differences
 
-Ordinary Least Squares (Moindres Carrés ordinaires)
-Y = beta_0 + beta_1*x 
+We test the changes in arrest rate using the DiD method. We find (95% confidence level) an increase of 3.2 percentage points for weekly arrest rate in Eugene compared to Springfield for same period after treatment (CAHOOTS stop)
 
-insignificant results
 
 ```{r}
-library(fixest)
+did <- lm(
+  arrest_rate ~ treated * post,
+  data    = panel_arrest,
+  weights = n_calls
+)
 
-# --- Variable de période relative ---
-treatment_week_num <- panel %>%
-  filter(week >= as.Date("2025-04-07")) %>%
+stargazer(did,
+          type  = "text",
+          title = "DiD, Effect of CAHOOTS Discontinuation on Arrest Rate (Weekly)",
+          covariate.labels = c("Eugene (Treated)",
+                               "Post-Discontinuation",
+                               "DiD Estimator (Treated × Post)"),
+          dep.var.labels = "Arrest Rate",
+          notes = "OLS weighted by weekly call volume.")
+
+
+```
+
+#### Event Study
+
+If we take a closer look at the coefficients, grouped by bins of 4 weeks, we can calculate the confidence intervals and plot the arrest rate rolling average, the DiD coefficients.
+
+```{r arrest bin DID}
+
+treatment_week_num <- panel_arrest %>%
+  filter(post == 1, city == "Eugene") %>%
   pull(week_num) %>% min()
 
-panel <- panel %>%
-  mutate(rel_week = week_num - treatment_week_num)
+panel_arrest <- panel_arrest %>%
+  mutate(
+    rel_week = round(week_num - treatment_week_num),
+    rel_bin = floor(rel_week / 4) * 4)   
 
-# --- TWFE baseline ---
-twfe <- feols(
-  arrest_rate ~ i(post, treated, ref = 0) | city + week_num,
-  data    = panel,
-  weights = ~n_calls,
-  cluster = ~city
-)
-summary(twfe)
-
-# --- Event study ---
-event_study <- feols(
-  arrest_rate ~ i(rel_week, treated, ref = -1) | city + week_num,
-  data    = panel,
-  weights = ~n_calls,
-  cluster = ~city
+event_study_binned <- lm(
+  arrest_rate ~ treated * factor(rel_bin),
+  data    = panel_arrest,
+  weights = n_calls
 )
 
-iplot(event_study,
-      xlab  = "Weeks relative to CAHOOTS discontinuation",
-      ylab  = "Estimated effect on arrest rate",
-      main  = "Event Study — Effect of CAHOOTS Discontinuation on Arrest Rate",
-      ref.line = 1)
-abline(v = 0, col = "red", lty = 2)
-```
-
-try monthly data
-
-```{r}
-panel_monthly <- data %>%
-  filter(
-    city %in% c("Eugene", "Springfield"),
-    timestamp >= as.POSIXct("2023-01-01"),
-    nature %in% top_14_cahoots_natures
-  ) %>%
+coefs_binned <- tidy(event_study_binned) %>%
+  filter(str_detect(term, "treated:factor")) %>%
   mutate(
-    month   = floor_date(timestamp, "month"),
-    treated = as.integer(city == "Eugene"),
-    post    = as.integer(timestamp >= date_cahoots_stop),
-    arrest  = as.integer(str_detect(str_to_lower(as.character(outcome)),
-                "arrest|juvenile taken into custody"))
-  ) %>%
-  group_by(city, month, treated) %>%
-  summarise(
-    n_calls     = n(),
-    n_arrests   = sum(arrest, na.rm = TRUE),
-    arrest_rate = n_arrests / n_calls,
-    post        = max(post),
-    .groups     = "drop"
-  ) %>%
-  mutate(
-    month_num = as.numeric(difftime(month, min(month), units = "days")) / 30
+    rel_bin   = as.numeric(str_extract(term, "-?[0-9]+")),
+    conf_low  = estimate - 1.96 * std.error,
+    conf_high = estimate + 1.96 * std.error
   )
 
-# Vérification parallel trends sur panel mensuel
-pre_monthly <- panel_monthly %>% filter(post == 0)
-
-trend_test_monthly <- lm(
-  arrest_rate ~ month_num * treated,
-  data    = pre_monthly,
-  weights = n_calls
-)
-summary(trend_test_monthly)
 ```
 
-```{r}
-twfe_simple <- feols(
-  arrest_rate ~ treated * post | city,
-  data    = panel_monthly,
-  weights = ~n_calls,
-  cluster = ~city
-)
-summary(twfe_simple)
+```{r DiD coeff plot arrests}
+
+event_study_arrest <- ggplot(coefs_binned, aes(x = rel_bin, y = estimate)) +
+  geom_ribbon(aes(ymin = conf_low, ymax = conf_high),
+              fill = "gray70", alpha = 0.4) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_vline(xintercept = -2, linetype = "dashed",
+             color = "red", linewidth = 0.8) +
+  geom_line(aes(color = rel_bin >= 0), linewidth = 0.8) +
+  geom_point(aes(color = rel_bin >= 0), size = 2) +
+  geom_smooth(data = filter(coefs_binned, rel_bin >= 0),
+              aes(x = rel_bin, y = estimate),
+              method = "loess", se = FALSE,
+              color = "#C0392B", linewidth = 1.2, linetype = "solid") +
+  geom_smooth(data = filter(coefs_binned, rel_bin < 0),
+              aes(x = rel_bin, y = estimate),
+              method = "loess", se = FALSE,
+              color = "#1A8FBB", linewidth = 1.2, linetype = "solid") +
+  scale_color_manual(
+    values = c("FALSE" = "#2ACCFE", "TRUE" = "#E63946"),
+    labels = c("Pre-treatment", "Post-treatment"),
+    name   = NULL
+  ) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  annotate("text", x = 2, y = min(coefs_binned$conf_low, na.rm = TRUE),
+           label = "CAHOOTS stops", hjust = 0, color = "red", size = 3) +
+  labs(
+    title    = "CAHOOTS' discontinuation effect on arrest rate in Eugene",
+    subtitle = "4-week bins DiD coefficients relative to bin −1 (reference period)",
+    x        = "4-week bins relative to CAHOOTS discontinuation (April 2025)",
+    y        = "Effect on arrest rate",
+    caption  = "Ref = bin −1. Shaded area = 95% CI. Weighted by call volume."
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+ggsave("../../figures/analysis/event_study_arrest.png", event_study_arrest, width = 10, height = 5, dpi = 180)
+
+event_study_arrest
 
 ```
 
 
+#### Robustness Test Arrests
+
+Try different time window to see if it impacts previous results (it passed)
+
 ```{r}
-did_ols <- lm(
+panel_narrow <- panel_arrest %>%
+  filter(abs(rel_week) <= 12)
+
+did_narrow <- lm(
   arrest_rate ~ treated * post,
-  data    = panel_monthly,
+  data    = panel_narrow,
   weights = n_calls
 )
-summary(did_ols)
+
+stargazer(did, did_narrow,
+          type = "text",
+          column.labels = c("Full period (2023-2025)", 
+                            "Narrow window (±12 months)"),
+          covariate.labels = c("Eugene (Treated)",
+                               "Post-Discontinuation",
+                               "DiD Estimator (Treated × Post)"),
+          dep.var.labels = "Arrest Rate",
+          notes = "Robustness check: restricting to ±12 months around discontinuation.")
 ```
-+3.17 percentage points arrest rate in eugene compared to springfield for same period, highly signif ***
 
 
-
-TO DO WEDNESDAY
+TO DO THURSDAY
 
 - put graph in report
 - explain method in report
 - add theory behind method and statistical testing (equations etc)
 
-- do DiD with data
+- do DiD but for other outcomes
 - write State of the Art
 - wrap up 
 
@@ -928,6 +966,134 @@ TO DO WEDNESDAY
 
 
 
+
+
+
+
+
+## Community Support
+
+Let's take a look at welfare checks and similar calls. The outcome associated with welfare checks are `Assisted` for CAHOOTS and `Welfare Check Done` for the police. The `Assisted` call outcome is also used by CAHOOTS for other calls when the outcome was successful.
+
+
+
+```{r filtered support weekly data}
+panel_community <- data %>%
+  filter(
+    city %in% c("Eugene", "Springfield"),
+    timestamp >= as.POSIXct("2023-01-01"),
+    nature %in% top_14_cahoots_natures
+  ) %>%
+  mutate(
+    week      = floor_date(timestamp, "week"),
+    treated   = as.integer(city == "Eugene"),
+    post      = as.integer(timestamp >= date_cahoots_stop),
+    community = as.integer(str_detect(
+      str_to_lower(as.character(outcome)),
+      "assist|advised|resolved|counseling|welfare check done|remained in community"
+    ))
+  ) %>%
+  group_by(city, week, treated) %>%
+  summarise(
+    n_calls        = n(),
+    community_rate = sum(community, na.rm = TRUE) / n(),
+    post           = max(post),
+    .groups = "drop"
+  ) %>%
+  mutate(week_num = as.numeric(difftime(week, min(week), units = "weeks")))
+
+
+```
+
+### Line Plot
+
+```{r lineplot community support rate}
+
+vline_date <- as.Date("2025-04-07")
+
+parallel_trends_community <- panel_community %>%
+  group_by(city) %>%
+  arrange(week) %>%
+  mutate(rate_smooth = zoo::rollmean(community_rate, k = 4, 
+                                     fill = NA, align = "right")) %>%
+  ggplot(aes(x = week, y = rate_smooth, color = city)) +
+  geom_line(linewidth = 0.9) +
+  geom_vline(xintercept = as.POSIXct(vline_date),
+             linetype = "dashed", color = "red", linewidth = 0.8) +
+  annotate("text", x = as.POSIXct(vline_date),
+           y = Inf, label = "CAHOOTS stops\n(Eugene)",
+           vjust = 1.5, hjust = -0.1, color = "red", size = 3.5) +
+  scale_color_manual(values = c("Eugene" = "#2ACCFE", "Springfield" = "#FEA4E6")) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  labs(
+    title    = "Community Support Rate by City",
+    subtitle = "4-week rolling average for the 14 most frequent CAHOOTS call natures",
+    x = NULL, y = "Community Support Rate", color = "City"
+  ) +
+  theme_minimal()
+
+parallel_trends_community
+```
+
+### Linear trends
+
+```{r linear trends community support}
+linear_trends_community <- panel_community %>%
+  ggplot(aes(x = week, y = community_rate, color = city)) +
+  geom_line(alpha = 0.3, linewidth = 0.4) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+  geom_vline(xintercept = as.POSIXct("2025-04-07"),
+             linetype = "dashed", color = "red") +
+  facet_wrap(~city, scales = "free_y") +
+  scale_color_manual(values = c("Eugene" = "#2ACCFE", "Springfield" = "#FEA4E6")) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  labs(
+    title    = "Community Support Rate, Linear Trend by City",
+    subtitle = "Free y-axis scale per city",
+    x = NULL, y = "Community Support Rate", color = "City"
+  ) +
+  theme_minimal()
+
+linear_trends_community
+```
+
+
+
+### Parallel trends check
+*** passed
+
+```{r parallel trends check support}
+# Parallel trends check
+pre_community <- panel_community %>% filter(post == 0)
+trend_test_community <- lm(
+  community_rate ~ week_num * treated,
+  data    = pre_community,
+  weights = n_calls
+)
+stargazer(trend_test_community,
+          type = "text")
+```
+
+### DiD Community Support
+
+- 6.3 pp community support outcome in dispatched calls for Eugene after CAHOOTS stopped (*** significant)
+
+```{r}
+did_community <- lm(
+  community_rate ~ treated * post,
+  data    = panel_community,
+  weights = n_calls
+)
+
+stargazer(did_community,
+          type  = "text",
+          title = "DiD, Effect of CAHOOTS Discontinuation on Community Support Rate (Weekly)",
+          covariate.labels = c("Eugene (Treated)",
+                               "Post-Discontinuation",
+                               "DiD Estimator (Treated × Post)"),
+          dep.var.labels = "Community Support Rate",
+          notes = "OLS weighted by weekly call volume.")
+```
 
 
 
