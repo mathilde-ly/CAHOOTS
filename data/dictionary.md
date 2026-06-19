@@ -26,7 +26,7 @@ There are 14 columns and 567,655 rows.
 | `city`                 | factor    | Springfield           | City.                                                                          |
 | `nature_code`          | factor    | ALMAUD                | Coded category for the type of call received.                                  |
 | `nature_final`         | factor    | AUDIBLE ALARM         | Final classification of the incident after assessment.                         |
-| `close_code`           | factor    | BLDS                  | Coded reason or outcome for closing the incident.                              |
+| `close_code`           | factor Fo   | BLDS                  | Coded reason or outcome for closing the incident.                              |
 | `close_code_definition`| factor    | Building Check Secure | Full description of the incident closure status.                               |
 | `priority`             | factor    | 3                     | Numerical priority level assigned to the call.                                 |
 | `prime_unit`           | character | 1S18                  | Primary unit assigned to respond to the incident.                              |
