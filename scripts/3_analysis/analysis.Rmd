@@ -672,7 +672,45 @@ plot_mcslc_outcomes
 
 # Post-CAHOOTS Call Outcome Evolution in Eugene
 
-## Arrests
+```{r most frequent natures}
+
+top_14_cahoots_natures <- c(
+  "Public Assist",
+  "Check Welfare",
+  "Transport",
+  "Suicidal Subject",
+  "Intoxicated Subject",
+  "Disorderly Subject",
+  "Found Syringe",
+  "Info / Atl",
+  "Disoriented Subject",
+  "Dispute",
+  "Subject Down",
+  "Disorderly Juveniles",
+  "Suspicious Conditions",
+  "Police Officer Hold"
+)
+
+top_mcslc_natures <- c(
+  "Agitation Or Disruptive Behavior",
+  "Disorganized Behavior",
+  "Difficulty Functioning",
+  "Needing Social/Mental Health Services",
+  "Suicidal Subject",
+  "Harm/Risk Of Harm To Self/Others/Property",
+  "Adult Social/Interpersonal Problems",
+  "Paranoia",
+  "Substance Use",
+  "Other",
+  "Concerns About Treatment Engagement",
+  "Trauma",
+  "Running Away",
+  "Seeking Mental Health Services"
+)
+
+```
+
+## Arrests (all agencies)
 
 Now moving on the the call outcome evolution analysis, we start by harmonizing the data. We calculate the weekly rolling average arrest rate per week for Eugene and Springfield, using only CAHOOTS call types regardless of the agency in charge of the intervention.
 
@@ -769,6 +807,62 @@ ggsave("../../figures/analysis/linear_trends.png", linear_trends, width = 10, he
 linear_trends
 ```
 
+```{r linear trends }
+cutoff <- as.POSIXct("2025-04-07")
+
+linear_trends_split <- panel_arrest %>%
+  ggplot(aes(x = week, y = arrest_rate, color = city)) +
+  geom_line(alpha = 0.3, linewidth = 0.4) +
+  
+  geom_smooth(
+    data = ~ filter(.x, city == "Eugene", week < cutoff),
+    method = "lm", se = TRUE, linewidth = 1
+  ) +
+  geom_smooth(
+    data = ~ filter(.x, city == "Eugene", week >= cutoff),
+    method = "lm", se = TRUE, linewidth = 1
+  ) +
+  
+  geom_smooth(
+    data = ~ filter(.x, city == "Springfield"),
+    method = "lm", se = TRUE, linewidth = 1
+  ) +
+  
+  geom_vline(
+    xintercept = as.numeric(cutoff),
+    linetype = "dashed", color = "red", linewidth = 0.8
+  ) +
+  geom_text(
+    data = data.frame(
+      city  = c("Eugene", "Springfield"),
+      label = c("CAHOOTS stops", ""),
+      x     = c(cutoff, cutoff)
+    ),
+    aes(x = x, y = Inf, label = label),
+    vjust = 1.5, hjust = -0.1, color = "red", size = 3,
+    inherit.aes = FALSE
+  ) +
+  
+  facet_wrap(~city, scales = "free_y") +
+  scale_color_manual(
+    values = c("Eugene" = "#2ACCFE", "Springfield" = "#FEA4E6"),
+    name = "City"
+  ) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  labs(
+    title    = "Arrest rate and linear trend by city",
+    subtitle = "Separate pre/post trends for Eugene; single trend for Springfield (control)",
+    x = NULL, y = "Arrest Rate"
+  ) +
+  theme_minimal()
+
+ggsave("../../figures/analysis/linear_trends_split.png", linear_trends_split, 
+       width = 10, height = 5, dpi = 180)
+linear_trends_split
+
+```
+
+
 #### Statistical Test 
 
 We then test the parallel trends more rigorously to see if we can use the Differences in Differences method.
@@ -777,6 +871,10 @@ H0 : both groups are the same before treatment (parallel trends)
 H1 : trends are different
 
 we don't want to reject null hypothesis so p-value should be over 0.5 (for 95% certainty)
+
+For the overall temporal trend in arrest rate for both cities, the p-value is 0.443 > 0.05, so not significant. It means that there is no temporal drift prior to the treatment period. The baseline for both cities was stable with no significant upward or downward trend common to both cities.
+
+The p-value for `treated`, which is the level difference between Eugene and Springfield, is significant (<0.01). 
 
 Here p-value is 0.544 so the parallel trends passed, meaning that before CAHOOTS was discontinued, arrest rate trends were similar in Eugene and Springfield for call natures typically handled by CAHOOTS, regardless of the agency in charge. We can proceed with the DiD method.
 
@@ -788,6 +886,11 @@ trend_test_cahoots <- lm(
   data    = pre_cahoots,
   weights = n_calls
 )
+
+summary(trend_test_cahoots)
+summary(trend_test_cahoots)$coefficients["week_num:treated", c("t value", "Pr(>|t|)")]
+
+stargazer(trend_test_cahoots, type = "text")
 
 stargazer(trend_test_cahoots,
           type = "text",
@@ -921,6 +1024,465 @@ stargazer(did, did_narrow,
           notes = "Robustness check: restricting to ±12 months around discontinuation.")
 ```
 
+## Police call outcome
+
+We check for a more detailed analysis to see how police call outcome changed after CAHOOTS stopped servicing Eugene to answer the question:
+
+did the rate of specific outcome change in Eugene relative to Springfield for law enforcement after April 7, 2025
+
+```{r filter EPD}
+
+outcomes_epd <- c(
+  "Arrest",
+  "Cited In Lieu Of Custody",
+  "Juvenile Taken Into Custody",
+  "Advised",
+  "Resolved",
+  "Welfare Check Done",
+  "Unable To Locate",
+  "Gone On Arrival",
+  "Non Criminal Hold",
+  "Transport Made",
+  "Referred To Other Agency"
+)
+
+panel_epd_outcomes <- data %>%
+  filter(
+    city %in% c("Eugene", "Springfield"),
+    timestamp >= as.POSIXct("2023-01-01"),
+    nature %in% top_14_cahoots_natures,
+    EPD == 1 | SPD == 1
+  ) %>%
+  mutate(
+    week    = floor_date(timestamp, "week"),
+    treated = as.integer(city == "Eugene"),
+    post    = as.integer(timestamp >= date_cahoots_stop),
+    # Create binary columns here in mutate, where outcome IS available
+    arrest                    = as.integer(outcome == "Arrest"),
+    cited_in_lieu_of_custody  = as.integer(outcome == "Cited In Lieu Of Custody"),
+    juvenile_taken_into_custody = as.integer(outcome == "Juvenile Taken Into Custody"),
+    advised                   = as.integer(outcome == "Advised"),
+    resolved                  = as.integer(outcome == "Resolved"),
+    welfare_check_done        = as.integer(outcome == "Welfare Check Done"),
+    unable_to_locate          = as.integer(outcome == "Unable To Locate"),
+    gone_on_arrival           = as.integer(outcome == "Gone On Arrival"),
+    non_criminal_hold         = as.integer(outcome == "Non Criminal Hold"),
+    transport_made            = as.integer(outcome == "Transport Made"),
+    referred_to_other_agency  = as.integer(outcome == "Referred To Other Agency")
+  ) %>%
+  group_by(city, week, treated) %>%
+  summarise(
+    n_calls                       = n(),
+    post                          = max(post),
+    arrest_rate                   = sum(arrest)                     / n(),
+    cited_in_lieu_of_custody_rate = sum(cited_in_lieu_of_custody)   / n(),
+    juvenile_taken_into_custody_rate = sum(juvenile_taken_into_custody) / n(),
+    advised_rate                  = sum(advised)                    / n(),
+    resolved_rate                 = sum(resolved)                   / n(),
+    welfare_check_done_rate       = sum(welfare_check_done)         / n(),
+    unable_to_locate_rate         = sum(unable_to_locate)           / n(),
+    gone_on_arrival_rate          = sum(gone_on_arrival)            / n(),
+    non_criminal_hold_rate        = sum(non_criminal_hold)          / n(),
+    transport_made_rate           = sum(transport_made)             / n(),
+    referred_to_other_agency_rate = sum(referred_to_other_agency)   / n(),
+    .groups = "drop"
+  ) %>%
+  mutate(week_num = as.numeric(difftime(week, min(week), units = "weeks")))
+
+```
+
+Function to iterate through the call outcome list and do parallel trends test, did if possible, summary if not
+
+```{r did iterate}
+run_did_single <- function(outcome_rate_col, panel, label) {
+  
+  formula_trend <- reformulate(c("week_num * treated"), response = outcome_rate_col)
+  formula_did   <- reformulate(c("treated * post"),     response = outcome_rate_col)
+  
+  pre  <- panel %>% filter(post == 0)
+  trend <- lm(formula_trend, data = pre, weights = n_calls)
+  trend_p <- summary(trend)$coefficients["week_num:treated", "Pr(>|t|)"]
+  
+  cat("\n***************************************\n")
+  cat("\n***************************************\n")
+  cat("OUTCOME:", label, "\n")
+  cat("Parallel trends p-value (week_num:treated):", round(trend_p, 4), "\n")
+  
+  if (trend_p > 0.05) {
+    cat("Parallel trends hold -> proceeding with DiD\n")
+    did <- lm(formula_did, data = panel, weights = n_calls)
+    stargazer(did,
+              type  = "text",
+              title = paste("DiD —", label),
+              covariate.labels = c("Eugene (Treated)", 
+                                   "Post-Discontinuation",
+                                   "DiD Estimator (Treated × Post)"),
+              dep.var.labels = label)
+  } else {
+    cat("Parallel trends FAILED -> DiD not valid, reporting descriptive only\n")
+    data %>%
+      filter(
+        city == "Eugene",
+        timestamp >= as.POSIXct("2023-01-01"),
+        nature %in% top_14_cahoots_natures,
+        EPD == 1
+      ) %>%
+      mutate(
+        post_label = if_else(timestamp >= date_cahoots_stop, 
+                             "Post-CAHOOTS", "Pre-CAHOOTS"),
+        is_outcome = as.integer(outcome == label)
+      ) %>%
+      group_by(post_label) %>%
+      summarise(
+        n_calls  = n(),
+        n_outcome = sum(is_outcome),
+        rate      = n_outcome / n_calls
+      ) %>%
+      print()
+  }
+}
+
+
+```
+
+
+Parallel trends test for each relevant call outcome. 
+
+
+```{r run did test, warning = FALSE}
+outcome_cols <- str_to_lower(str_replace_all(outcomes_epd, " ", "_"))
+
+walk2(
+  paste0(outcome_cols, "_rate"),
+  outcomes_epd,
+  ~ run_did_single(.x, panel_epd_outcomes, .y)
+)
+```
+
+
+
+## Call Type Breakdown
+
+### Descriptive
+
+```{r}
+arrest_by_nature_eugene <- data %>%
+  filter(
+    city == "Eugene",
+    timestamp >= as.POSIXct("2023-01-01"),
+    nature %in% top_14_cahoots_natures,
+    EPD == 1
+  ) %>%
+  mutate(
+    post = if_else(timestamp >= date_cahoots_stop, 
+                   "Post-CAHOOTS", "Pre-CAHOOTS"),
+    arrest = as.integer(str_detect(
+      str_to_lower(as.character(outcome)),
+      "arrest|juvenile taken into custody"
+    ))
+  ) %>%
+  group_by(nature, post) %>%
+  summarise(
+    n_calls   = n(),
+    n_arrests = sum(arrest, na.rm = TRUE),
+    rate      = n_arrests / n_calls,
+    .groups   = "drop"
+  ) %>%
+  pivot_wider(
+    names_from  = post,
+    values_from = c(n_calls, n_arrests, rate)
+  ) %>%
+  mutate(
+    delta_pp       = `rate_Post-CAHOOTS` - `rate_Pre-CAHOOTS`,
+    relative_change = delta_pp / `rate_Pre-CAHOOTS`
+  ) %>%
+  arrange(desc(delta_pp))
+
+arrest_by_nature_eugene %>%
+  knitr::kable(
+    digits  = 4,
+    caption = "Arrest rate change by call nature — Eugene EPD, before vs after CAHOOTS discontinuation"
+  )
+```
+
+
+```{r}
+ggplot(arrest_by_nature_eugene, 
+       aes(x = reorder(nature, delta_pp), 
+           y = delta_pp, 
+           fill = delta_pp > 0)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = scales::percent(delta_pp, accuracy = 0.1)),
+            hjust = ifelse(arrest_by_nature_eugene$delta_pp > 0, -0.1, 1.1),
+            size = 3) +
+  coord_flip() +
+  scale_fill_manual(values = c("TRUE" = "#E63946", "FALSE" = "#2ACCFE"),
+                    labels = c("Decrease", "Increase"),
+                    name   = "Direction") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  labs(
+    title    = "Change in arrest rate by call nature after CAHOOTS discontinuation",
+    subtitle = "Eugene EPD only, descriptive",
+    x        = NULL,
+    y        = "Change in arrest rate (pp)"
+  ) +
+  theme_minimal()
+```
+
+
+
+### DiD Springfield comparison
+
+
+```{r}
+run_did_by_nature <- function(nature_filter, panel_data) {
+  
+  df <- panel_data %>%
+    filter(nature == nature_filter)
+  
+  # Need enough observations
+  if (nrow(df) < 50) return(NULL)
+  
+  # Parallel trends check
+  pre <- df %>% filter(post == 0)
+  
+  if (nrow(pre) < 20) return(NULL)
+  
+  trend <- lm(arrest_rate ~ week_num * treated, 
+              data = pre, weights = n_calls)
+  trend_p <- tryCatch(
+    summary(trend)$coefficients["week_num:treated", "Pr(>|t|)"],
+    error = function(e) NA
+  )
+  
+  # DiD
+  did <- lm(arrest_rate ~ treated * post,
+            data = df, weights = n_calls)
+  
+  did_coef <- tidy(did) %>%
+    filter(term == "treated:post") %>%
+    select(estimate, std.error, p.value)
+  
+  tibble(
+    nature          = nature_filter,
+    parallel_trends = trend_p,
+    pt_passed       = !is.na(trend_p) & trend_p > 0.05,
+    did_estimate    = did_coef$estimate,
+    did_se          = did_coef$std.error,
+    did_p           = did_coef$p.value,
+    significant     = !is.na(did_coef$p.value) & did_coef$p.value < 0.05
+  )
+}
+
+# Build nature-level panel first
+panel_by_nature <- data %>%
+  filter(
+    city %in% c("Eugene", "Springfield"),
+    timestamp >= as.POSIXct("2023-01-01"),
+    nature %in% top_14_cahoots_natures,
+    EPD == 1 | SPD == 1
+  ) %>%
+  mutate(
+    week    = floor_date(timestamp, "week"),
+    treated = as.integer(city == "Eugene"),
+    post    = as.integer(timestamp >= date_cahoots_stop),
+    arrest  = as.integer(str_detect(
+      str_to_lower(as.character(outcome)),
+      "arrest|juvenile taken into custody"
+    ))
+  ) %>%
+  group_by(city, nature, week, treated) %>%
+  summarise(
+    n_calls     = n(),
+    n_arrests   = sum(arrest, na.rm = TRUE),
+    arrest_rate = n_arrests / n_calls,
+    post        = max(post),
+    .groups     = "drop"
+  ) %>%
+  mutate(week_num = as.numeric(difftime(week, min(week), units = "weeks")))
+
+# Run for all natures
+results_by_nature <- map_dfr(
+  top_14_cahoots_natures,
+  ~ run_did_by_nature(.x, panel_by_nature)
+) %>%
+  arrange(desc(abs(did_estimate)))
+
+results_by_nature %>%
+  knitr::kable(
+    digits  = 4,
+    caption = "Nature-stratified DiD — arrest rate change per call type"
+  )
+```
+
+
+```{r}
+results_by_nature %>%
+  filter(pt_passed) %>%
+  mutate(
+    conf_low  = did_estimate - 1.96 * did_se,
+    conf_high = did_estimate + 1.96 * did_se,
+    color     = case_when(
+      significant & did_estimate > 0 ~ "Significant increase",
+      significant & did_estimate < 0 ~ "Significant decrease",
+      TRUE ~ "Not significant"
+    )
+  ) %>%
+  ggplot(aes(x = reorder(nature, did_estimate), 
+             y = did_estimate, color = color)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_errorbar(aes(ymin = conf_low, ymax = conf_high), 
+                width = 0.3, linewidth = 0.7) +
+  geom_point(size = 3) +
+  coord_flip() +
+  scale_color_manual(values = c(
+    "Significant increase" = "#E63946",
+    "Significant decrease" = "#2ACCFE",
+    "Not significant"      = "gray60"
+  )) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  labs(
+    title    = "DiD estimates by call nature, effect on arrest rate",
+    subtitle = "Only natures where parallel trends hold | 95% CI shown",
+    x        = NULL,
+    y        = "DiD estimate (pp change in arrest rate)",
+    color    = NULL
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+
+
+
+
+### DiD interaction model
+
+```{r}
+did_interaction <- lm(
+  arrest_rate ~ treated * post * nature,
+  data    = panel_by_nature,
+  weights = n_calls
+)
+
+stargazer(did_interaction, type="text")
+
+# Extract nature-specific DiD coefficients
+tidy(did_interaction) %>%
+  filter(str_detect(term, "treated:post:nature")) %>%
+  mutate(
+    nature    = str_remove(term, "treated:post:nature"),
+    conf_low  = estimate - 1.96 * std.error,
+    conf_high = estimate + 1.96 * std.error
+  ) %>%
+  arrange(desc(estimate)) %>%
+  knitr::kable(digits = 4)
+
+
+```
+
+
+```{r}
+# Extract base DiD (reference nature = Check Welfare)
+base_did <- tidy(did_interaction) %>%
+  filter(term == "treated:post") %>%
+  pull(estimate)
+
+# Extract nature-specific deviations and compute total effect
+nature_did_total <- tidy(did_interaction) %>%
+  filter(str_detect(term, "treated:post:nature")) %>%
+  mutate(
+    nature        = str_remove(term, "treated:post:nature"),
+    total_did     = estimate + base_did,
+    conf_low      = total_did - 1.96 * std.error,
+    conf_high     = total_did + 1.96 * std.error
+  ) %>%
+  # Add reference nature manually
+  bind_rows(
+    tidy(did_interaction) %>%
+      filter(term == "treated:post") %>%
+      mutate(
+        nature    = "Check Welfare",
+        total_did = estimate,
+        conf_low  = estimate - 1.96 * std.error,
+        conf_high = estimate + 1.96 * std.error
+      )
+  ) %>%
+  arrange(desc(total_did))
+
+nature_did_total %>%
+  select(nature, total_did, std.error, p.value, conf_low, conf_high) %>%
+  knitr::kable(
+    digits  = 4,
+    caption = "Total nature-specific DiD estimates from pooled interaction model"
+  )
+```
+
+
+```{r}
+# Identify natures with enough observations in all 4 cells
+# (Eugene/Springfield x Pre/Post)
+valid_natures <- panel_by_nature %>%
+  group_by(nature, treated, post) %>%
+  summarise(n = sum(n_calls), .groups = "drop") %>%
+  group_by(nature) %>%
+  summarise(
+    n_cells    = n(),
+    min_calls  = min(n),
+    .groups    = "drop"
+  ) %>%
+  filter(n_cells == 4, min_calls >= 10) %>%  # all 4 cells exist with enough data
+  pull(nature)
+
+cat("Valid natures for interaction model:", length(valid_natures), "\n")
+print(valid_natures)
+
+# Refit on valid natures only
+panel_by_nature_valid <- panel_by_nature %>%
+  filter(nature %in% valid_natures)
+
+did_interaction_clean <- lm(
+  arrest_rate ~ treated * post * nature,
+  data    = panel_by_nature_valid,
+  weights = n_calls
+)
+
+# Now the F-test should work
+valid_terms_clean <- grep("treated:post:nature",
+                          names(coef(did_interaction_clean)),
+                          value = TRUE)
+valid_terms_clean <- valid_terms_clean[
+  !is.na(coef(did_interaction_clean)[valid_terms_clean])
+]
+
+linearHypothesis(did_interaction_clean, valid_terms_clean)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+## All calls
+
+we answered the question "within CAHOOTS call types, do specific natures drive the arrest increase more than others in Eugene?" using Springfield as a control group.
+
+Now we take a look at every call to see if the arrest rate increase is specifically concentrated in CAHOOTS call types. Springfield is not our comparison point, we use other call types to compare.
+
+
+
+
+
+
+# TODO
 
 TO DO THURSDAY
 
@@ -932,170 +1494,12 @@ TO DO THURSDAY
 - write State of the Art
 - wrap up 
 
+TO DO FRIDAY 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## Community Support
-
-Let's take a look at welfare checks and similar calls. The outcome associated with welfare checks are `Assisted` for CAHOOTS and `Welfare Check Done` for the police. The `Assisted` call outcome is also used by CAHOOTS for other calls when the outcome was successful.
-
-
-
-```{r filtered support weekly data}
-panel_community <- data %>%
-  filter(
-    city %in% c("Eugene", "Springfield"),
-    timestamp >= as.POSIXct("2023-01-01"),
-    nature %in% top_14_cahoots_natures
-  ) %>%
-  mutate(
-    week      = floor_date(timestamp, "week"),
-    treated   = as.integer(city == "Eugene"),
-    post      = as.integer(timestamp >= date_cahoots_stop),
-    community = as.integer(str_detect(
-      str_to_lower(as.character(outcome)),
-      "assist|advised|resolved|counseling|welfare check done|remained in community"
-    ))
-  ) %>%
-  group_by(city, week, treated) %>%
-  summarise(
-    n_calls        = n(),
-    community_rate = sum(community, na.rm = TRUE) / n(),
-    post           = max(post),
-    .groups = "drop"
-  ) %>%
-  mutate(week_num = as.numeric(difftime(week, min(week), units = "weeks")))
-
-
-```
-
-### Line Plot
-
-```{r lineplot community support rate}
-
-vline_date <- as.Date("2025-04-07")
-
-parallel_trends_community <- panel_community %>%
-  group_by(city) %>%
-  arrange(week) %>%
-  mutate(rate_smooth = zoo::rollmean(community_rate, k = 4, 
-                                     fill = NA, align = "right")) %>%
-  ggplot(aes(x = week, y = rate_smooth, color = city)) +
-  geom_line(linewidth = 0.9) +
-  geom_vline(xintercept = as.POSIXct(vline_date),
-             linetype = "dashed", color = "red", linewidth = 0.8) +
-  annotate("text", x = as.POSIXct(vline_date),
-           y = Inf, label = "CAHOOTS stops\n(Eugene)",
-           vjust = 1.5, hjust = -0.1, color = "red", size = 3.5) +
-  scale_color_manual(values = c("Eugene" = "#2ACCFE", "Springfield" = "#FEA4E6")) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-  labs(
-    title    = "Community Support Rate by City",
-    subtitle = "4-week rolling average for the 14 most frequent CAHOOTS call natures",
-    x = NULL, y = "Community Support Rate", color = "City"
-  ) +
-  theme_minimal()
-
-parallel_trends_community
-```
-
-### Linear trends
-
-```{r linear trends community support}
-linear_trends_community <- panel_community %>%
-  ggplot(aes(x = week, y = community_rate, color = city)) +
-  geom_line(alpha = 0.3, linewidth = 0.4) +
-  geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
-  geom_vline(xintercept = as.POSIXct("2025-04-07"),
-             linetype = "dashed", color = "red") +
-  facet_wrap(~city, scales = "free_y") +
-  scale_color_manual(values = c("Eugene" = "#2ACCFE", "Springfield" = "#FEA4E6")) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-  labs(
-    title    = "Community Support Rate, Linear Trend by City",
-    subtitle = "Free y-axis scale per city",
-    x = NULL, y = "Community Support Rate", color = "City"
-  ) +
-  theme_minimal()
-
-linear_trends_community
-```
-
-
-
-### Parallel trends check
-*** passed
-
-```{r parallel trends check support}
-# Parallel trends check
-pre_community <- panel_community %>% filter(post == 0)
-trend_test_community <- lm(
-  community_rate ~ week_num * treated,
-  data    = pre_community,
-  weights = n_calls
-)
-stargazer(trend_test_community,
-          type = "text")
-```
-
-### DiD Community Support
-
-- 6.3 pp community support outcome in dispatched calls for Eugene after CAHOOTS stopped (*** significant)
-
-```{r}
-did_community <- lm(
-  community_rate ~ treated * post,
-  data    = panel_community,
-  weights = n_calls
-)
-
-stargazer(did_community,
-          type  = "text",
-          title = "DiD, Effect of CAHOOTS Discontinuation on Community Support Rate (Weekly)",
-          covariate.labels = c("Eugene (Treated)",
-                               "Post-Discontinuation",
-                               "DiD Estimator (Treated × Post)"),
-          dep.var.labels = "Community Support Rate",
-          notes = "OLS weighted by weekly call volume.")
-```
-
-
+- check calls from police only and see changes in outcomes 
+- decompose call type to see which calls have more arrests
+- is police going to more calls; agency mismatch?
+- checck again parallel trends
 
 
 # Appendix
