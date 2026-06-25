@@ -38,7 +38,7 @@ library(janitor)
 library(lubridate)
 library(hms)
 library(patchwork)
-
+library(car)
 library(fixest)   
 library(did)   
 library(stargazer)
@@ -213,7 +213,7 @@ data_nature_cahoots <- data %>%
   count(nature, sort = TRUE) %>%
   top_n(20, n)
 
-ggplot(data_nature_cahoots, aes(x = reorder(nature, n), y = n)) +
+frequent_natures_plot <- ggplot(data_nature_cahoots, aes(x = reorder(nature, n), y = n)) +
   geom_col(fill = "#58BF03", width = 0.7) +
   geom_text(
     aes(label = scales::comma(n)),
@@ -229,6 +229,10 @@ ggplot(data_nature_cahoots, aes(x = reorder(nature, n), y = n)) +
     y = "Number of interventions"
   )
 
+ggsave("../../figures/analysis/frequent_natures_plot.png", frequent_natures_plot, width = 10, height = 5, dpi = 180)
+
+frequent_natures_plot
+
 ```
 
 
@@ -242,13 +246,13 @@ top_14_cahoots_natures <- c(
   "Intoxicated Subject",
   "Disorderly Subject",
   "Found Syringe",
-  "Info / Atl",
+  "Criminal Trespass",
   "Disoriented Subject",
   "Dispute",
   "Subject Down",
   "Disorderly Juveniles",
   "Suspicious Conditions",
-  "Police Officer Hold"
+  "Suspicious Subject"
 )
 
 top_mcslc_natures <- c(
@@ -288,7 +292,7 @@ data_chronologie <- data %>%
   ) %>%
   pivot_longer(cols = c(CAHOOTS, MCS_LC), names_to = "Service", values_to = "Volume")
 
-ggplot(data_chronologie, aes(x = Mois, y = Volume, color = Service)) +
+timeline_volume <- ggplot(data_chronologie, aes(x = Mois, y = Volume, color = Service)) +
   geom_vline(xintercept = as.POSIXct(remarkable_dates), 
            linetype = "dashed", color = "red", size = 0.7) +
   geom_text(data = data.frame(dates = remarkable_dates, label = c("MCSLC", " CAHOOTS")),
@@ -305,6 +309,11 @@ ggplot(data_chronologie, aes(x = Mois, y = Volume, color = Service)) +
   ) +
   theme_minimal() +
   theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+ggsave("../../figures/analysis/timeline_volume.png", timeline_volume, width = 10, height = 5, dpi = 180)
+
+timeline_volume
+
 
 ```
 
@@ -509,7 +518,7 @@ data_outcome_overlap <- data_temporal %>%
   group_by(agency) %>%
   slice_max(n, n = 10)
 
-ggplot(data_outcome_overlap, aes(x = reorder_within(outcome, prop, agency), 
+outcome_distrib_overlap <- ggplot(data_outcome_overlap, aes(x = reorder_within(outcome, prop, agency), 
                                   y = prop, fill = agency)) +
   geom_col(show.legend = FALSE) +
   scale_x_reordered() +
@@ -523,6 +532,10 @@ ggplot(data_outcome_overlap, aes(x = reorder_within(outcome, prop, agency),
     x = NULL, y = "Share of calls"
   ) +
   theme_minimal()
+
+ggsave("../../figures/analysis/outcome_distrib_overlap.png", outcome_distrib_overlap, width = 10, height = 5, dpi = 180)
+outcome_distrib_overlap
+
 ```
 
 If we reuse the broad outcome category from the exploratory analysis, we find the following numbers. We will dive in deeper and more precisely in the following subsections of this analysis.
@@ -682,13 +695,13 @@ top_14_cahoots_natures <- c(
   "Intoxicated Subject",
   "Disorderly Subject",
   "Found Syringe",
-  "Info / Atl",
+  "Criminal Trespass",
   "Disoriented Subject",
   "Dispute",
   "Subject Down",
   "Disorderly Juveniles",
   "Suspicious Conditions",
-  "Police Officer Hold"
+  "Suspicious Subject"
 )
 
 top_mcslc_natures <- c(
@@ -712,7 +725,7 @@ top_mcslc_natures <- c(
 
 ## Arrests (all agencies)
 
-Now moving on the the call outcome evolution analysis, we start by harmonizing the data. We calculate the weekly rolling average arrest rate per week for Eugene and Springfield, using only CAHOOTS call types regardless of the agency in charge of the intervention.
+Now moving on the the call outcome evolution analysis, we start by harmonizing the data. We calculate the weekly arrest rate per week for Eugene and Springfield, using only CAHOOTS call types regardless of the agency in charge of the intervention.
 
 ```{r filtered arrest weekly data}
 date_mcslc_start <- as.POSIXct("2024-08-18")
@@ -890,7 +903,7 @@ trend_test_cahoots <- lm(
 summary(trend_test_cahoots)
 summary(trend_test_cahoots)$coefficients["week_num:treated", c("t value", "Pr(>|t|)")]
 
-stargazer(trend_test_cahoots, type = "text")
+stargazer(trend_test_cahoots)
 
 stargazer(trend_test_cahoots,
           type = "text",
@@ -914,7 +927,6 @@ did <- lm(
 )
 
 stargazer(did,
-          type  = "text",
           title = "DiD, Effect of CAHOOTS Discontinuation on Arrest Rate (Weekly)",
           covariate.labels = c("Eugene (Treated)",
                                "Post-Discontinuation",
@@ -1207,7 +1219,7 @@ arrest_by_nature_eugene %>%
 
 
 ```{r}
-ggplot(arrest_by_nature_eugene, 
+epd_arrest_change <- ggplot(arrest_by_nature_eugene, 
        aes(x = reorder(nature, delta_pp), 
            y = delta_pp, 
            fill = delta_pp > 0)) +
@@ -1227,6 +1239,11 @@ ggplot(arrest_by_nature_eugene,
     y        = "Change in arrest rate (pp)"
   ) +
   theme_minimal()
+
+ggsave("../../figures/analysis/epd_arrest_change.png", epd_arrest_change, width = 10, height = 5, dpi = 180)
+
+epd_arrest_change
+
 ```
 
 
@@ -1317,7 +1334,7 @@ results_by_nature %>%
 
 
 ```{r}
-results_by_nature %>%
+did_call_nature <- results_by_nature %>%
   filter(pt_passed) %>%
   mutate(
     conf_low  = did_estimate - 1.96 * did_se,
@@ -1350,6 +1367,12 @@ results_by_nature %>%
   ) +
   theme_minimal() +
   theme(legend.position = "top")
+
+ggsave("../../figures/analysis/did_call_nature.png", did_call_nature, width = 10, height = 5, dpi = 180)
+
+did_call_nature
+
+
 ```
 
 
@@ -1416,12 +1439,14 @@ nature_did_total %>%
     digits  = 4,
     caption = "Total nature-specific DiD estimates from pooled interaction model"
   )
+
+
+  )
 ```
 
 
 ```{r}
-# Identify natures with enough observations in all 4 cells
-# (Eugene/Springfield x Pre/Post)
+
 valid_natures <- panel_by_nature %>%
   group_by(nature, treated, post) %>%
   summarise(n = sum(n_calls), .groups = "drop") %>%
@@ -1431,7 +1456,7 @@ valid_natures <- panel_by_nature %>%
     min_calls  = min(n),
     .groups    = "drop"
   ) %>%
-  filter(n_cells == 4, min_calls >= 10) %>%  # all 4 cells exist with enough data
+  filter(n_cells == 4, min_calls >= 10) %>% 
   pull(nature)
 
 cat("Valid natures for interaction model:", length(valid_natures), "\n")
@@ -1454,6 +1479,7 @@ valid_terms_clean <- grep("treated:post:nature",
 valid_terms_clean <- valid_terms_clean[
   !is.na(coef(did_interaction_clean)[valid_terms_clean])
 ]
+
 
 linearHypothesis(did_interaction_clean, valid_terms_clean)
 
