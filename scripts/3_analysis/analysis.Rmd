@@ -236,7 +236,7 @@ frequent_natures_plot
 ```
 
 
-```{r most frequent natures}
+```{r post cahoots most frequent natures}
 
 top_14_cahoots_natures <- c(
   "Public Assist",
@@ -820,7 +820,7 @@ ggsave("../../figures/analysis/linear_trends.png", linear_trends, width = 10, he
 linear_trends
 ```
 
-```{r linear trends }
+```{r linear trends split}
 cutoff <- as.POSIXct("2025-04-07")
 
 linear_trends_split <- panel_arrest %>%
@@ -1440,8 +1440,6 @@ nature_did_total %>%
     caption = "Total nature-specific DiD estimates from pooled interaction model"
   )
 
-
-  )
 ```
 
 
@@ -1548,7 +1546,6 @@ TO DO FRIDAY
 - SPD: Springfield Police Department
 
 - MCR: Mobile Crisis Response
-
 
 
 
